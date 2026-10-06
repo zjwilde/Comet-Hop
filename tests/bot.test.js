@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, stepGame } from '../src/game.js';
 import { HumanController } from '../src/controllers.js';
+import { isDrillMoment } from '../src/bot.js';
 import { copyOfSettings, createSeededRandom, noControls } from './helpers.js';
 
 const stepSeconds = 1 / 120;
@@ -279,4 +280,61 @@ test('with no shot at its enemy, the bot takes Blaster shots at a drone in reach
   for (let step = 0; step < 3 / stepSeconds; step += 1) stepGame(game, stepSeconds);
   assert.ok(game.drone.vitals.health < game.drone.rules.maxHealth || game.drone.vitals.state !== 'alive', 'the drone was hit');
   assert.equal(game.bot.arsenal.carriedWeapons[1].ammoRemaining, 3, 'no mortar shells spent');
+});
+
+// The bot with a few drills, the player placed where the test says, and no crates or jumping to muddy things.
+async function drillScenario({ botComet, botAngle, playerComet, playerAngle }) {
+  const game = await botMatch(6, (settings) => {
+    settings.crates.spawnIntervalSeconds = 1000;
+    settings.bot.chanceToJumpPerDecision = 0;
+  });
+  game.bot.placeOnComet(game.comets, botComet, botAngle);
+  game.player.placeOnComet(game.comets, playerComet, playerAngle);
+  game.bot.arsenal.carriedWeapons.push({ weaponName: 'drill', ammoRemaining: 3 });
+  const drillsLeft = () => game.bot.arsenal.carriedWeapons.find((carried) => carried.weaponName === 'drill')?.ammoRemaining ?? 0;
+  const playFor = (seconds, until = () => false) => {
+    for (let step = 0; step < seconds / stepSeconds && !until(); step += 1) stepGame(game, stepSeconds);
+  };
+  return { game, drillsLeft, playFor };
+}
+
+const angleBetween = (game, fromComet, toComet) => Math.atan2(game.comets[toComet].centre.y - game.comets[fromComet].centre.y, game.comets[toComet].centre.x - game.comets[fromComet].centre.x);
+
+test('the bot drills straight through its own comet at an enemy hiding on the far side, hitting first time', async () => {
+  const { game, drillsLeft, playFor } = await drillScenario({ botComet: 5, botAngle: -Math.PI / 2, playerComet: 5, playerAngle: Math.PI / 2 });
+  playFor(5, () => game.player.vitals.health < game.settings.rules.maxHealth);
+  assert.ok(game.player.vitals.health < game.settings.rules.maxHealth, 'it hit');
+  assert.equal(drillsLeft(), 2, 'with its first drill');
+});
+
+test('from a neighbouring comet, the bot drills through the enemy\'s comet at an enemy hiding behind it', async () => {
+  const probe = await botMatch(6);
+  const facing = angleBetween(probe, 3, 4);
+  const { game, drillsLeft, playFor } = await drillScenario({ botComet: 3, botAngle: facing, playerComet: 4, playerAngle: facing });
+  playFor(5, () => game.player.vitals.health < game.settings.rules.maxHealth);
+  assert.ok(game.player.vitals.health < game.settings.rules.maxHealth, 'it hit');
+  assert.equal(drillsLeft(), 2, 'with its first drill');
+});
+
+test('otherwise the bot keeps its drills in reserve, even when its enemy is in the air in plain view', async () => {
+  const probe = await botMatch(6);
+  const facing = angleBetween(probe, 3, 4);
+  const { game, drillsLeft, playFor } = await drillScenario({ botComet: 3, botAngle: facing, playerComet: 4, playerAngle: facing + Math.PI });
+  game.player.controller = new HumanController(() => ({ ...noControls, jumpRequested: game.player.movementMode === 'grounded', aimPoint: { ...game.player.position } }));
+  makePlayerUnhurtable(game);
+  playFor(15);
+  assert.equal(drillsLeft(), 3);
+});
+
+test('it is only a drill moment when the comet a drill would bore into first is the one the enemy stands on', async () => {
+  const { game } = await drillScenario({ botComet: 1, botAngle: 0, playerComet: 5, playerAngle: Math.PI });
+  // Facing each other across the bottom row: comet 3 sits between them. A drill would come out of comet 3, not near them.
+  assert.equal(isDrillMoment(game, game.bot, game.player), false, 'another comet is in the way first');
+  // Behind its own comet from where the bot stands: the right comet.
+  game.player.placeOnComet(game.comets, 3, 0);
+  game.bot.placeOnComet(game.comets, 3, Math.PI);
+  assert.equal(isDrillMoment(game, game.bot, game.player), true, 'same comet, far side');
+  // In plain view: no need to drill.
+  game.player.placeOnComet(game.comets, 3, Math.PI - 0.3);
+  assert.equal(isDrillMoment(game, game.bot, game.player), false, 'in plain view');
 });

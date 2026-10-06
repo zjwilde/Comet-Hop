@@ -118,7 +118,11 @@ Plain ES modules in `src/`, all tunable numbers in `src/settings.js`. `npm start
   Loot: the drone's loot crate falls onto a comet (always reachable), and the bot heads for it once landed, hopping
   along the shortest route of comets. The drone: the bot takes Blaster shots at it only when it has no shot at its
   enemy and the drone happens to be in reach; it never changes course, switches weapon, or spends limited ammo for
-  it (user's direction). Measured at about 20 drone damage per minute per bot, below the user's ~34 in a playtest. Difficulty
+  it (user's direction). Measured at about 20 drone damage per minute per bot, below the user's ~34 in a playtest.
+  Drills (user's idea, after beating the hardest bot by waiting on the far side of a comet and drilling it as it
+  landed): the bot keeps drills in reserve for a target hidden behind a comet it can bore through (the target's own
+  comet, or the shared one), drilling straight at it at full power, which guards its approach; otherwise it only uses
+  a drill to finish someone off. Easy bots still spend drills freely. Difficulty
   lives in a few plain settings (reaction, wobble, correction) under `bot` in `src/settings.js`.
 - Weapons are still plain settings data with behaviour flags (`passesThroughComets`, `eruption`,
   `firesAllCarriedWeapons`); likely to become classes once there are many more.
