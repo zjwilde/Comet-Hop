@@ -42,6 +42,10 @@ export const settings = {
     respawnDelaySeconds: 2,
     // After respawning, a character cannot be hurt or pushed for this long.
     respawnProtectionSeconds: 1.5,
+    // Self-damage: whether your own shots, fragments and blasts can hurt you, as in Gravitee Wars and tank games.
+    // (Once there are teams, whether teammates can hurt each other, usually called friendly fire, will be a separate
+    // setting.)
+    shotsCanHurtTheirShooter: true,
   },
 
   aiming: {

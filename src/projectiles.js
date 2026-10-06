@@ -22,11 +22,15 @@ export function mouseDistanceForMuzzleSpeed(shotDefinition, muzzleSpeed, aimingS
 }
 
 // Starts just outside the shooter's body, so the shot never begins inside the shooter.
-export function createProjectile(shooter, aimDirection, shotDefinition, muzzleSpeed = shotDefinition.projectileSpeed) {
+// canHurtShooter: the rules' shotsCanHurtTheirShooter. Even then, the shot can't hit its shooter until it has once
+// been clear of the shooter's body, so it doesn't hit them the moment it's fired.
+export function createProjectile(shooter, aimDirection, shotDefinition, muzzleSpeed = shotDefinition.projectileSpeed, canHurtShooter = false) {
   return {
     ownerId: shooter.id,
-    // Who this shot can never hit: always its shooter.
-    cannotHitIds: [shooter.id],
+    // Who this shot (and its fragments and blast) can never hit.
+    cannotHitIds: canHurtShooter ? [] : [shooter.id],
+    hasClearedShooter: false,
+    isFragment: false,
     position: add(shooter.position, scale(aimDirection, shooter.bodyRadius + shotDefinition.projectileRadius)),
     velocity: scale(aimDirection, muzzleSpeed),
     radius: shotDefinition.projectileRadius,
@@ -86,6 +90,9 @@ function eruptionFragments(shell, burstPoint, upDirection, alsoCannotHitId) {
     fragments.push({
       ownerId: shell.ownerId,
       cannotHitIds: alsoCannotHitId ? [...shell.cannotHitIds, alsoCannotHitId] : [...shell.cannotHitIds],
+      // Fragments start where the shell landed, not at the shooter, so (if allowed) they can hurt the shooter at once.
+      hasClearedShooter: true,
+      isFragment: true,
       position: { ...burstPoint },
       velocity: scale(direction, speed),
       radius: eruption.fragmentRadius,
@@ -122,7 +129,12 @@ export function updateProjectiles(projectiles, stepSeconds, comets, characters, 
     }
     // A drill still underground (inside the comet it bored into, since it hasn't detonated) can't hit anyone outside.
     const underground = projectile.drilledCometIndex !== null;
+    if (!projectile.hasClearedShooter) {
+      const shooter = characters.find((character) => character.id === projectile.ownerId);
+      projectile.hasClearedShooter = !shooter || distance(shooter.position, projectile.position) > shooter.bodyRadius + projectile.radius;
+    }
     const target = !underground && characters.find((character) => !projectile.cannotHitIds.includes(character.id)
+      && (character.id !== projectile.ownerId || projectile.hasClearedShooter)
       && isAlive(character.vitals)
       && distance(character.position, projectile.position) <= character.bodyRadius + projectile.radius);
     if (target) {

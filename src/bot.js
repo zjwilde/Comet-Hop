@@ -6,10 +6,12 @@
 // - grabs a crate if one is on the comet it's standing on;
 // - aims by trying many directions (and, for weapons with adjustable power, many powers), following each shot's
 //   predicted path, and picking the one that passes closest to its target, then adding some random error;
-// - fires only if that best shot passes close enough to the target.
+// - fires only if that best shot passes close enough to the target, and (with self-damage on) only if playing the shot
+//   out, fragments and blast included, shows it wouldn't hurt the bot itself. That check assumes the bot stays put, so
+//   it does: it stands still until its own bursting or exploding shots have finished.
 import { add, scale, distance, directionFromAngle } from './vector.js';
 import { weaponsThatFire } from './weapons.js';
-import { predictFlightPath, mouseDistanceForMuzzleSpeed } from './projectiles.js';
+import { predictFlightPath, mouseDistanceForMuzzleSpeed, createProjectile, updateProjectiles, blastStrengthAt } from './projectiles.js';
 import { idleControls } from './controllers.js';
 
 export class BotController {
@@ -41,7 +43,7 @@ export class BotController {
         && game.random() < botSettings.chanceToHopTowardsTargetPerDecision ? neighbourCometTowards(game, fighter, target) : null;
     }
 
-    if (fighter.movementMode === 'grounded') this.decideGroundMovement(game, fighter, controls);
+    if (fighter.movementMode === 'grounded' && !ownBurstStillLive(game, fighter)) this.decideGroundMovement(game, fighter, controls);
 
     const target = nearestEnemy(game, fighter);
     this.secondsUntilAimReplan -= stepSeconds;
@@ -83,6 +85,13 @@ export class BotController {
       }
     }
   }
+}
+
+// True while (with self-damage on) a bursting shell, its fragments, or an exploding shot this fighter fired is in flight.
+function ownBurstStillLive(game, fighter) {
+  if (!game.settings.rules.shotsCanHurtTheirShooter) return false;
+  return game.projectiles.some((projectile) => projectile.ownerId === fighter.id
+    && (projectile.eruption || projectile.detonation || projectile.isFragment));
 }
 
 // How far to turn from one angle to another the short way round: positive is clockwise. Between -pi and pi.
@@ -150,10 +159,31 @@ function planShot(game, fighter, target) {
 
   const angleError = ((game.random() * 2 - 1) * botSettings.aimErrorDegrees * Math.PI) / 180;
   const speedError = 1 + (game.random() * 2 - 1) * botSettings.muzzleSpeedErrorFraction;
+  const direction = directionFromAngle(best.angle + angleError);
+  const muzzleSpeed = best.muzzleSpeed * speedError;
+  const tooDangerous = game.settings.rules.shotsCanHurtTheirShooter && shotWouldHurtShooter(game, fighter, direction, muzzleSpeed, weaponDefinition);
   return {
-    direction: directionFromAngle(best.angle + angleError),
+    direction,
     // A tiny minimum keeps the aim point off the fighter itself, so the aim direction is always defined.
-    mouseDistance: Math.max(0.01, mouseDistanceForMuzzleSpeed(weaponDefinition, best.muzzleSpeed * speedError, game.settings.aiming)),
-    closestApproach: best.closestApproach,
+    mouseDistance: Math.max(0.01, mouseDistanceForMuzzleSpeed(weaponDefinition, muzzleSpeed, game.settings.aiming)),
+    // A shot that would hurt the bot itself is never worth firing.
+    closestApproach: tooDangerous ? Infinity : best.closestApproach,
   };
+}
+
+// Plays a shot out in full (fragments and blast included), with every character standing still where it is now, and
+// reports whether the shooter would be hurt. Others are included because a shell bursting on a nearby target can
+// throw fragments straight back at the shooter.
+function shotWouldHurtShooter(game, fighter, direction, muzzleSpeed, weaponDefinition) {
+  const standIns = game.characters.filter((character) => character.isAlive()).map((character) => ({
+    id: character.id, bodyRadius: character.bodyRadius, position: { ...character.position }, vitals: { state: 'alive' },
+  }));
+  const shooterStandIn = standIns.find((standIn) => standIn.id === fighter.id);
+  const projectiles = [createProjectile(shooterStandIn, direction, weaponDefinition, muzzleSpeed, true)];
+  const simulationStepSeconds = 1 / 60;
+  for (let elapsed = 0; elapsed < 10 && projectiles.length > 0; elapsed += simulationStepSeconds) {
+    const { hits, blasts } = updateProjectiles(projectiles, simulationStepSeconds, game.comets, standIns, game.outerBounds);
+    if (hits.some((hit) => hit.target === shooterStandIn) || blasts.some((blast) => blastStrengthAt(blast, shooterStandIn) > 0)) return true;
+  }
+  return false;
 }

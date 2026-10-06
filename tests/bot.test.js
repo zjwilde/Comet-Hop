@@ -62,3 +62,19 @@ test('the bot heads for a crate on its own comet and collects it', async () => {
   }
   assert.equal(game.bot.arsenal.carriedWeapons.at(-1).weaponName, 'drill');
 });
+
+test('with self-damage on, the bot does not blow itself up with a volcano bomb at a target standing right beside it', async () => {
+  for (const seed of [9, 10, 11]) {
+    const game = await botMatch(seed, (settings) => {
+      settings.bot.chanceToJumpPerDecision = 0;
+      settings.bot.chanceToHopTowardsTargetPerDecision = 0;
+      settings.crates.spawnIntervalSeconds = 1000;
+    });
+    assert.equal(game.settings.rules.shotsCanHurtTheirShooter, true, 'self-damage is on by default');
+    game.bot.arsenal.carriedWeapons.push({ weaponName: 'volcanoBomb', ammoRemaining: 99 });
+    game.bot.arsenal.selectedIndex = 1;
+    game.player.placeOnComet(game.comets, game.bot.groundedCometIndex, game.bot.angleOnComet + 0.6);
+    for (let step = 0; step < 10 / stepSeconds; step += 1) stepGame(game, stepSeconds);
+    assert.equal(game.bot.vitals.health, game.settings.rules.maxHealth, `seed ${seed}`);
+  }
+});

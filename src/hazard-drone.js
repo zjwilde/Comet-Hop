@@ -15,7 +15,8 @@ export class HazardDrone extends Drone {
   update(game, stepSeconds) {
     super.update(game, stepSeconds);
     for (const direction of this.takeVolleyDirections(stepSeconds)) {
-      game.projectiles.push(createProjectile(this, direction, this.settings.volleyShot));
+      const { volleyShot } = this.settings;
+      game.projectiles.push(createProjectile(this, direction, volleyShot, volleyShot.projectileSpeed, game.settings.rules.shotsCanHurtTheirShooter));
     }
   }
 

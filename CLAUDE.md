@@ -75,6 +75,9 @@ Game's existing "abilities as moves with limits" approach to player movement.
   fighter sets the power.**
 - **Special loot (placeholder):** the Barrage: 4 shots, each firing every weapon carried at once, using only the
   Barrage's ammo. Comes with a random ammo-limited weapon so it's never weak.
+- **Self-damage is on (2026-10-06)**, as in Gravitee Wars and tank games: your own shots, fragments and blasts can
+  hurt you. It's a rule setting (`shotsCanHurtTheirShooter`) so it can be switched off. Friendly fire between
+  teammates will be its own setting once teams exist.
 - **Health, damage, respawning:** conventional. Lives are limited (a setting) and the same for every fighter. Leaving
   the map (past a margin) costs a life, like falling off the stage.
 
@@ -102,8 +105,7 @@ Plain ES modules in `src/`, all tunable numbers in `src/settings.js`. `npm start
 - The aim path uses the same physics step as real shots, and a test checks they match exactly.
 
 Choices made while building, not yet confirmed by the user: collected weapons are lost on death; respawn is on top of
-a random comet no other fighter stands on; all comets share one surface gravity; shots never hit their own shooter
-(including volcano fragments); comets are never damaged; a drill that hits someone before reaching any comet does plain hit damage with no blast; a drill underground can't hit anyone; blasts never hurt the shooter; blast numbers (radius 1.8 m, 35 damage at the centre) are guesses; the starting weapons
+a random comet no other fighter stands on; all comets share one surface gravity; comets are never damaged; a drill that hits someone before reaching any comet does plain hit damage with no blast; a drill underground can't hit anyone; blast numbers (radius 1.8 m, 35 damage at the centre) are guesses; the starting weapons
 curve only slightly, so they show no aim path.
 
 **Feel numbers:** gravity 9, jump 4.5, run 3 and the 7-comet layout were picked by simulating jumps, not by playing.

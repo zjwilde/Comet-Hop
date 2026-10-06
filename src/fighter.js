@@ -118,7 +118,7 @@ export class Fighter extends Character {
     if (!tryFire(this.arsenal, weapons)) return;
     for (const weaponName of firingWeaponNames) {
       const muzzleSpeed = muzzleSpeedFor(weapons[weaponName], length(aimOffset), aiming);
-      game.projectiles.push(createProjectile(this, normalize(aimOffset), weapons[weaponName], muzzleSpeed));
+      game.projectiles.push(createProjectile(this, normalize(aimOffset), weapons[weaponName], muzzleSpeed, game.settings.rules.shotsCanHurtTheirShooter));
     }
   }
 }

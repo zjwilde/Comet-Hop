@@ -11,9 +11,10 @@ import { copyOfSettings, createSeededRandom, noControls } from './helpers.js';
 const stepSeconds = 1 / 120;
 
 // A game where the bot stands idle and (unless asked for) there is no drone, so tests control everything that happens.
-async function quietGame({ withDrone = false, seed = 1 } = {}) {
+async function quietGame({ withDrone = false, seed = 1, selfDamage = false } = {}) {
   const settings = await copyOfSettings();
   settings.drone.includeInMatch = withDrone;
+  settings.rules.shotsCanHurtTheirShooter = selfDamage;
   const game = createGame(settings, createSeededRandom(seed));
   game.bot.controller = new IdleController();
   return game;
@@ -253,4 +254,51 @@ test('a drill fired down through your own comet blasts a fighter standing on the
   assert.equal(game.bot.movementMode, 'airborne', 'knocked off the comet');
   assert.ok(game.bot.velocity.y > 0, 'pushed away from the blast, downward here');
   assert.equal(game.player.vitals.health, game.settings.rules.maxHealth, 'the shooter is unharmed');
+});
+
+// Fires a volcano bomb straight down at the player's own feet and lets the fragments land.
+async function volcanoBombAtOwnFeet(selfDamage) {
+  const game = await quietGame({ selfDamage });
+  giveWeapon(game.player.arsenal, 'volcanoBomb', game.settings.weapons);
+  const comet = game.comets[game.player.groundedCometIndex];
+  stepFor(game, { ...noControls, fireHeld: true, aimPoint: comet.centre }, stepSeconds);
+  stepFor(game, noControls, 2);
+  return game;
+}
+
+test('self-damage off (the default): your own volcano fragments land on you harmlessly', async () => {
+  const game = await volcanoBombAtOwnFeet(false);
+  assert.equal(game.player.vitals.health, game.settings.rules.maxHealth);
+});
+
+test('self-damage on: your own volcano fragments hurt you', async () => {
+  const game = await volcanoBombAtOwnFeet(true);
+  assert.ok(game.player.vitals.health < game.settings.rules.maxHealth);
+});
+
+test('self-damage on: your own drill blast hurts you if you stand where it comes out', async () => {
+  const game = await quietGame({ selfDamage: true });
+  const cometIndex = game.player.groundedCometIndex;
+  giveWeapon(game.player.arsenal, 'drill', game.settings.weapons);
+  stepFor(game, { ...noControls, fireHeld: true, aimPoint: game.comets[cometIndex].centre }, stepSeconds);
+  game.player.placeOnComet(game.comets, cometIndex, Math.PI / 2);
+  for (let step = 0; step < 240 && game.effects.length === 0; step += 1) stepFor(game, noControls, stepSeconds);
+  assert.ok(game.player.vitals.health < game.settings.rules.maxHealth);
+});
+
+test('self-damage on: a shot never hits its shooter as it leaves, even one outrunning it, but can once clear', () => {
+  const shooter = { id: 'player', bodyRadius: 0.4, position: { x: 5, y: 5 }, vitals: { state: 'alive' } };
+  const slowShot = { projectileRadius: 0.1, projectileSpeed: 2, damage: 10, knockbackSpeed: 0, gravityScale: 0, projectileLifetimeSeconds: 5, passesThroughComets: false, eruption: null };
+  const bounds = { minimumX: -50, minimumY: -50, maximumX: 50, maximumY: 50 };
+  const projectiles = [createProjectile(shooter, { x: 1, y: 0 }, slowShot, 2, true)];
+  // A fighter flying the same way faster than its own slow shot runs right through it: no hit.
+  for (let step = 0; step < 40; step += 1) {
+    shooter.position = { x: shooter.position.x + 0.05, y: 5 };
+    assert.deepEqual(updateProjectiles(projectiles, stepSeconds, [], [shooter], bounds).hits, [], `step ${step}`);
+  }
+  // Well clear of it now; then stepping back into its path is a hit.
+  shooter.position = { x: projectiles[0].position.x + 0.3, y: 5 };
+  const { hits } = updateProjectiles(projectiles, stepSeconds, [], [shooter], bounds);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].target, shooter);
 });
