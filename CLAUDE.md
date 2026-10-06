@@ -97,13 +97,13 @@ Plain ES modules in `src/`, all tunable numbers in `src/settings.js`. `npm start
 - Weapons are still plain settings data with behaviour flags (`passesThroughComets`, `eruption`,
   `firesAllCarriedWeapons`); likely to become classes once there are many more.
 - Weapons: Blaster (unlimited, fixed speed), Heavy Cannon (fixed speed), Volcano Bomb (adjustable power, erupts into
-  fragments), Drill (adjustable power, bores through comets), Barrage (drone loot). Crates on comet surfaces hold one
+  fragments), Drill (adjustable power; bores into the first comet it meets and detonates on coming out of the far surface, with a blast that fades from centre to edge), Barrage (drone loot). Crates on comet surfaces hold one
   crate weapon; the drone's floating loot crate holds a bonus weapon plus the Barrage.
 - The aim path uses the same physics step as real shots, and a test checks they match exactly.
 
 Choices made while building, not yet confirmed by the user: collected weapons are lost on death; respawn is on top of
 a random comet no other fighter stands on; all comets share one surface gravity; shots never hit their own shooter
-(including volcano fragments); a drill passes through comets unchanged (comets aren't damaged); the starting weapons
+(including volcano fragments); comets are never damaged; a drill that hits someone before reaching any comet does plain hit damage with no blast; a drill underground can't hit anyone; blasts never hurt the shooter; blast numbers (radius 1.8 m, 35 damage at the centre) are guesses; the starting weapons
 curve only slightly, so they show no aim path.
 
 **Feel numbers:** gravity 9, jump 4.5, run 3 and the 7-comet layout were picked by simulating jumps, not by playing.

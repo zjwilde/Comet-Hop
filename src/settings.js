@@ -184,7 +184,8 @@ export const settings = {
         fragmentColour: '#ffb03a',
       },
     },
-    // Bores straight through comets, so you can hit someone on the far side of one.
+    // Bores into the first comet it meets and detonates on coming out of the far side, so you can hit someone standing
+    // on the other side of a comet.
     drill: {
       displayName: 'Drill',
       projectileColour: '#c9d1e0',
@@ -200,6 +201,14 @@ export const settings = {
       passesThroughComets: true,
       showsAimPath: true,
       eruption: null,
+      // Damage and knockback are full at the blast centre and fade to nothing at blastRadius (measured to the nearest
+      // edge of a character's body). The shooter is never hurt.
+      detonation: {
+        blastRadius: 1.8,
+        damageAtCentre: 35,
+        knockbackSpeedAtCentre: 6,
+        flashColour: '#fff4c2',
+      },
     },
     // Special loot from the drone: each shot fires every other weapon carried at once, using only the Barrage's own
     // ammo. It has no projectile of its own.

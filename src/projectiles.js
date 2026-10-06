@@ -1,5 +1,5 @@
 // Shots in flight: bent by comet gravity (scaled per weapon), stopped by comets (unless they bore through), the world
-// edge, or their lifetime. Some burst into fragments where they hit.
+// edge, or their lifetime. Some burst into fragments where they hit; some detonate on coming out of a comet.
 import { add, subtract, scale, distance, length, normalize, directionFromAngle } from './vector.js';
 import { gravityAt } from './gravity.js';
 import { isAlive } from './vitals.js';
@@ -38,6 +38,9 @@ export function createProjectile(shooter, aimDirection, shotDefinition, muzzleSp
     shape: shotDefinition.projectileShape,
     passesThroughComets: shotDefinition.passesThroughComets,
     eruption: shotDefinition.eruption,
+    detonation: shotDefinition.detonation ?? null,
+    // For a detonating shot: the comet it has bored into, once it's inside one.
+    drilledCometIndex: null,
   };
 }
 
@@ -52,6 +55,20 @@ function moveProjectile(projectile, stepSeconds, comets) {
 function cometHitBy(projectile, comets) {
   if (projectile.passesThroughComets) return undefined;
   return comets.find((comet) => distance(comet.centre, projectile.position) <= comet.radius + projectile.radius);
+}
+
+// For a detonating shot: notes the first comet it bores into, and returns the blast point (on that comet's surface)
+// on the step it comes back out of the far side. Returns null otherwise.
+function detonationPoint(projectile, comets) {
+  if (!projectile.detonation) return null;
+  if (projectile.drilledCometIndex === null) {
+    const enteredIndex = comets.findIndex((comet) => distance(comet.centre, projectile.position) < comet.radius);
+    if (enteredIndex >= 0) projectile.drilledCometIndex = enteredIndex;
+    return null;
+  }
+  const comet = comets[projectile.drilledCometIndex];
+  if (distance(comet.centre, projectile.position) < comet.radius) return null;
+  return add(comet.centre, scale(normalize(subtract(projectile.position, comet.centre)), comet.radius));
 }
 
 // The fragments a bursting shot throws out: an even fan centred on upDirection, with varied speeds.
@@ -80,21 +97,32 @@ function eruptionFragments(shell, burstPoint, upDirection, alsoCannotHitId) {
       shape: 'ball',
       passesThroughComets: false,
       eruption: null,
+      detonation: null,
+      drilledCometIndex: null,
     });
   }
   return fragments;
 }
 
 // Moves every projectile one step and removes finished ones (in place), adding any fragments from bursts.
-// Returns the hits as [{ projectile, target }].
+// Returns { hits: [{ projectile, target }], blasts: [{ position, cannotHitIds, ...detonation settings }] }.
 export function updateProjectiles(projectiles, stepSeconds, comets, characters, worldBounds) {
   const hits = [];
+  const blasts = [];
   const stillFlying = [];
   const newFragments = [];
   for (const projectile of projectiles) {
     moveProjectile(projectile, stepSeconds, comets);
 
-    const target = characters.find((character) => !projectile.cannotHitIds.includes(character.id)
+    // Detonating comes first, so someone standing right where a drill comes out takes the blast, not just a bump.
+    const blastPoint = detonationPoint(projectile, comets);
+    if (blastPoint) {
+      blasts.push({ ...projectile.detonation, position: blastPoint, cannotHitIds: [...projectile.cannotHitIds] });
+      continue;
+    }
+    // A drill still underground (inside the comet it bored into, since it hasn't detonated) can't hit anyone outside.
+    const underground = projectile.drilledCometIndex !== null;
+    const target = !underground && characters.find((character) => !projectile.cannotHitIds.includes(character.id)
       && isAlive(character.vitals)
       && distance(character.position, projectile.position) <= character.bodyRadius + projectile.radius);
     if (target) {
@@ -117,16 +145,28 @@ export function updateProjectiles(projectiles, stepSeconds, comets, characters, 
   }
   projectiles.length = 0;
   projectiles.push(...stillFlying, ...newFragments);
-  return hits;
+  return { hits, blasts };
+}
+
+// How hard a blast hits a character: 1 at the centre, falling to 0 at the blast radius (measured to the nearest edge
+// of the character's body), and 0 beyond it.
+export function blastStrengthAt(blast, character) {
+  const distanceToBody = Math.max(0, distance(blast.position, character.position) - character.bodyRadius);
+  return Math.max(0, 1 - distanceToBody / blast.blastRadius);
 }
 
 // Where a shot would go if fired now, ignoring characters: the list of points it passes through, ending where it would
-// hit a comet, leave the world, run out of lifetime, or after the given number of seconds.
+// hit a comet, detonate, leave the world, run out of lifetime, or after the given number of seconds.
 export function predictFlightPath(shooter, aimDirection, muzzleSpeed, shotDefinition, comets, worldBounds, seconds, stepSeconds) {
   const projectile = createProjectile(shooter, aimDirection, shotDefinition, muzzleSpeed);
   const points = [{ ...projectile.position }];
   for (let elapsed = 0; elapsed < seconds && projectile.secondsRemaining > 0; elapsed += stepSeconds) {
     moveProjectile(projectile, stepSeconds, comets);
+    const blastPoint = detonationPoint(projectile, comets);
+    if (blastPoint) {
+      points.push(blastPoint);
+      break;
+    }
     points.push({ ...projectile.position });
     if (cometHitBy(projectile, comets) || !isInsideBounds(projectile.position, worldBounds)) break;
   }

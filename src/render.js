@@ -85,6 +85,7 @@ export function drawGame(context, game, view) {
     if (isAlive(fighter.vitals)) drawFighter(context, fighter, game.comets);
   }
   for (const projectile of game.projectiles) drawProjectile(context, projectile);
+  for (const effect of game.effects) drawBlastFlash(context, effect);
   context.restore();
 
   drawHud(context, game, view);
@@ -258,6 +259,20 @@ function drawProjectile(context, projectile) {
     context.arc(0, 0, projectile.radius, 0, 2 * Math.PI);
     context.fill();
   }
+  context.restore();
+}
+
+// A ring that grows to the blast radius while fading out.
+function drawBlastFlash(context, effect) {
+  const progress = 1 - effect.secondsRemaining / effect.totalSeconds;
+  context.save();
+  context.globalAlpha = 1 - progress;
+  context.fillStyle = effect.colour;
+  context.shadowColor = effect.colour;
+  context.shadowBlur = 20;
+  context.beginPath();
+  context.arc(effect.position.x, effect.position.y, effect.radius * (0.3 + 0.7 * progress), 0, 2 * Math.PI);
+  context.fill();
   context.restore();
 }
 

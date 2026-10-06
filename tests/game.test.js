@@ -56,7 +56,7 @@ test('a character is never hit by its own shot', () => {
   const shot = createProjectile(shooter, { x: 1, y: 0 }, { projectileRadius: 0.1, projectileSpeed: 0, damage: 10, knockbackSpeed: 0, gravityScale: 0, projectileLifetimeSeconds: 1, passesThroughComets: false, eruption: null });
   shot.position = { ...shooter.position };
   const bounds = { minimumX: 0, minimumY: 0, maximumX: 10, maximumY: 10 };
-  assert.deepEqual(updateProjectiles([shot], stepSeconds, [], [shooter], bounds), []);
+  assert.deepEqual(updateProjectiles([shot], stepSeconds, [], [shooter], bounds).hits, []);
 });
 
 test('ordinary shots are stopped by comets', async () => {
@@ -235,4 +235,22 @@ test('shots curve under comet gravity', async () => {
   const straightLineEnd = add(shot.position, scale(shot.velocity, 0.2));
   updateProjectiles([shot], 0.2, game.comets, [], game.outerBounds);
   assert.notDeepEqual(shot.position, straightLineEnd);
+});
+
+test('a drill fired down through your own comet blasts a fighter standing on the far side, but never the shooter', async () => {
+  const game = await quietGame();
+  const cometIndex = game.player.groundedCometIndex;
+  const comet = game.comets[cometIndex];
+  game.bot.placeOnComet(game.comets, cometIndex, Math.PI / 2);
+  giveWeapon(game.player.arsenal, 'drill', game.settings.weapons);
+  stepFor(game, { ...noControls, fireHeld: true, aimPoint: comet.centre }, stepSeconds);
+  // Once the drill is on its way, the shooter runs round to near where it will come out.
+  game.player.placeOnComet(game.comets, cometIndex, Math.PI / 2 + 0.6);
+  for (let step = 0; step < 240 && game.effects.length === 0; step += 1) stepFor(game, noControls, stepSeconds);
+  assert.equal(game.effects.length, 1, 'detonated');
+  const { detonation } = game.settings.weapons.drill;
+  assert.ok(Math.abs(game.bot.vitals.health - (game.settings.rules.maxHealth - detonation.damageAtCentre)) < 1, 'full blast damage');
+  assert.equal(game.bot.movementMode, 'airborne', 'knocked off the comet');
+  assert.ok(game.bot.velocity.y > 0, 'pushed away from the blast, downward here');
+  assert.equal(game.player.vitals.health, game.settings.rules.maxHealth, 'the shooter is unharmed');
 });
