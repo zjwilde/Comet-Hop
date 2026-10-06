@@ -9,7 +9,8 @@ const keyBindings = {
   runCounterclockwise: ['KeyA', 'ArrowLeft'],
   runClockwise: ['KeyD', 'ArrowRight'],
   jump: ['KeyW', 'ArrowUp'],
-  switchWeapon: ['Tab'],
+  // "/" sits next to the arrow keys; Tab next to W/A/D.
+  switchWeapon: ['Tab', 'Slash'],
   restart: ['KeyR'],
 };
 const keysThisGameUses = new Set(Object.values(keyBindings).flat());

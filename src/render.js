@@ -340,7 +340,7 @@ function drawFighterPanel(context, game, fighter, left) {
     const hasAdjustablePower = weaponsThatFire(fighter.arsenal, weapons).some((weaponName) => weapons[weaponName].muzzleSpeedRange);
     const power = Math.min(1, length(subtract(fighter.aimPoint, fighter.position)) / aiming.mouseDistanceForFullPower);
     if (hasAdjustablePower) notes.push(`Power ${Math.round(power * 100)}%`);
-    if (fighter.arsenal.carriedWeapons.length > 1) notes.push(`Tab: switch (${fighter.arsenal.carriedWeapons.length} carried)`);
+    if (fighter.arsenal.carriedWeapons.length > 1) notes.push(`Tab or /: switch (${fighter.arsenal.carriedWeapons.length} carried)`);
   }
   context.fillText(notes.join('   '), left, 86);
 }
@@ -359,7 +359,7 @@ function drawHud(context, game, view) {
   context.fillStyle = colours.dimText;
   context.textAlign = 'left';
   context.textBaseline = 'bottom';
-  context.fillText('A/D or Left/Right: run   W or Up: jump   Mouse: aim (distance = power)   Click: fire   Tab: switch weapon   R: restart', 16, view.canvasHeight - 12);
+  context.fillText('A/D or Left/Right: run   W or Up: jump   Mouse: aim (distance = power)   Click: fire   Tab or /: switch weapon   R: restart', 16, view.canvasHeight - 12);
 
   context.textAlign = 'center';
   context.textBaseline = 'middle';

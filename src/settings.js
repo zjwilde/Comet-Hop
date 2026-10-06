@@ -234,7 +234,8 @@ export const settings = {
       projectileColour: '#d4b05a',
       projectileShape: 'ball',
       cooldownSeconds: 1.8,
-      muzzleSpeedRange: { slowest: 2, fastest: 6.5 },
+      // Was 2 to 6.5; sped up a little (user, 2026-10-06) so it's less niche.
+      muzzleSpeedRange: { slowest: 2.5, fastest: 8 },
       projectileLifetimeSeconds: 8,
       projectileRadius: 0.2,
       damage: 0,
