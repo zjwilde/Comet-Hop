@@ -124,7 +124,9 @@ export function updateProjectiles(projectiles, stepSeconds, comets, characters, 
   const blasts = [];
   const landings = [];
   const noteLanding = (projectile, position) => {
-    if (!projectile.isFragment) landings.push({ ownerId: projectile.ownerId, adjustablePower: projectile.adjustablePower, position: { ...position } });
+    if (!projectile.isFragment) {
+      landings.push({ ownerId: projectile.ownerId, adjustablePower: projectile.adjustablePower, position: { ...position }, weaponName: projectile.weaponName ?? null, limitedAmmo: Boolean(projectile.limitedAmmo) });
+    }
   };
   const stillFlying = [];
   const newFragments = [];
@@ -134,7 +136,7 @@ export function updateProjectiles(projectiles, stepSeconds, comets, characters, 
     // Detonating comes first, so someone standing right where a drill comes out takes the blast, not just a bump.
     const blastPoint = detonationPoint(projectile, comets);
     if (blastPoint) {
-      blasts.push({ ...projectile.detonation, position: blastPoint, cannotHitIds: [...projectile.cannotHitIds] });
+      blasts.push({ ...projectile.detonation, position: blastPoint, ownerId: projectile.ownerId, cannotHitIds: [...projectile.cannotHitIds] });
       noteLanding(projectile, blastPoint);
       continue;
     }
@@ -152,7 +154,7 @@ export function updateProjectiles(projectiles, stepSeconds, comets, characters, 
     if (target && detonatesOnImpact) {
       // Centred where the shell touches the target's body, so a direct hit is a full-strength blast.
       const contactPoint = add(target.position, scale(normalize(subtract(projectile.position, target.position)), target.bodyRadius));
-      blasts.push({ ...projectile.detonation, position: contactPoint, cannotHitIds: [...projectile.cannotHitIds] });
+      blasts.push({ ...projectile.detonation, position: contactPoint, ownerId: projectile.ownerId, cannotHitIds: [...projectile.cannotHitIds] });
       noteLanding(projectile, contactPoint);
       continue;
     }
@@ -168,7 +170,7 @@ export function updateProjectiles(projectiles, stepSeconds, comets, characters, 
       noteLanding(projectile, projectile.position);
       if (detonatesOnImpact) {
         const surfacePoint = add(comet.centre, scale(normalize(subtract(projectile.position, comet.centre)), comet.radius));
-        blasts.push({ ...projectile.detonation, position: surfacePoint, cannotHitIds: [...projectile.cannotHitIds] });
+        blasts.push({ ...projectile.detonation, position: surfacePoint, ownerId: projectile.ownerId, cannotHitIds: [...projectile.cannotHitIds] });
       }
       if (projectile.eruption) {
         const upFromSurface = normalize(subtract(projectile.position, comet.centre));

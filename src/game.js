@@ -8,9 +8,10 @@ import { IdleController } from './controllers.js';
 import { BotController } from './bot.js';
 import { HazardDrone } from './hazard-drone.js';
 import { updateProjectiles, knockbackVelocityOf, blastStrengthAt } from './projectiles.js';
-import { subtract, normalize, scale } from './vector.js';
+import { subtract, normalize, scale, distance } from './vector.js';
 import { createCrateSpawner, updateCrates } from './crates.js';
 import { updateVitals } from './vitals.js';
+import { logEvent } from './match-log.js';
 
 // playerController: what drives the player's fighter (the browser passes one reading the keyboard and mouse).
 export function createGame(gameSettings = defaultSettings, random = Math.random, playerController = new IdleController()) {
@@ -41,6 +42,9 @@ export function createGame(gameSettings = defaultSettings, random = Math.random,
     crateSpawner: createCrateSpawner(gameSettings.crates),
     // null while playing; { winnerId } once only one fighter (or none: winnerId null, a draw) has lives left.
     outcome: null,
+    elapsedSeconds: 0,
+    // What happened, for checking how shots get spent (see match-log.js).
+    matchLog: [],
   };
   for (const character of game.characters) character.respawn(game);
   return game;
@@ -48,6 +52,7 @@ export function createGame(gameSettings = defaultSettings, random = Math.random,
 
 export function stepGame(game, stepSeconds) {
   if (game.outcome) return;
+  game.elapsedSeconds += stepSeconds;
 
   for (const character of game.characters) {
     if (updateVitals(character.vitals, stepSeconds, character.rules)) character.respawn(game);
@@ -57,9 +62,10 @@ export function stepGame(game, stepSeconds) {
   }
 
   const { hits, blasts, landings } = updateProjectiles(game.projectiles, stepSeconds, game.comets, game.characters, game.outerBounds);
-  for (const { projectile, target } of hits) target.takeHit(game, projectile.damage, knockbackVelocityOf(projectile));
+  for (const { projectile, target } of hits) hitAndLog(game, target, projectile.ownerId, projectile.damage, knockbackVelocityOf(projectile));
   for (const blast of blasts) applyBlast(game, blast);
   game.latestLandings = landings;
+  for (const landing of landings) logLanding(game, landing);
   for (const effect of game.effects) effect.secondsRemaining -= stepSeconds;
   game.effects = game.effects.filter((effect) => effect.secondsRemaining > 0);
 
@@ -78,7 +84,23 @@ function applyBlast(game, blast) {
     const strength = blastStrengthAt(blast, character);
     if (strength <= 0) continue;
     const awayFromBlast = normalize(subtract(character.position, blast.position));
-    character.takeHit(game, blast.damageAtCentre * strength, scale(awayFromBlast, blast.knockbackSpeedAtCentre * strength));
+    hitAndLog(game, character, blast.ownerId, blast.damageAtCentre * strength, scale(awayFromBlast, blast.knockbackSpeedAtCentre * strength));
   }
   game.effects.push({ position: blast.position, radius: blast.blastRadius, colour: blast.flashColour, secondsRemaining: blastFlashSeconds, totalSeconds: blastFlashSeconds });
+}
+
+// Applies a hit and logs the damage actually taken (none under respawn protection).
+function hitAndLog(game, target, fromId, damage, knockbackVelocity) {
+  const healthBefore = target.vitals.health;
+  target.takeHit(game, damage, knockbackVelocity);
+  const damageTaken = healthBefore - target.vitals.health;
+  if (damageTaken > 0) logEvent(game, { type: 'hit', fromId, targetId: target.id, damage: damageTaken });
+}
+
+// Logs where a main shot came down, measured to the nearest edge of the nearest living enemy fighter.
+function logLanding(game, landing) {
+  const enemies = game.fighters.filter((fighter) => fighter.id !== landing.ownerId && fighter.isAlive());
+  const distanceToNearestEnemy = enemies.length === 0 ? null
+    : Math.min(...enemies.map((enemy) => Math.max(0, distance(enemy.position, landing.position) - enemy.bodyRadius)));
+  logEvent(game, { type: 'landed', ownerId: landing.ownerId, weaponName: landing.weaponName, limitedAmmo: landing.limitedAmmo, distanceToNearestEnemy });
 }

@@ -4,9 +4,10 @@
 import { add, scale, subtract, dot, length, normalize, directionFromAngle } from './vector.js';
 import { gravityAt } from './gravity.js';
 import { Character } from './character.js';
-import { createArsenal, updateArsenalCooldown, selectNextWeapon, tryFire, giveWeapon, weaponsThatFire } from './weapons.js';
+import { createArsenal, updateArsenalCooldown, selectNextWeapon, tryFire, giveWeapon, weaponsThatFire, selectedWeapon } from './weapons.js';
 import { createProjectile, isInsideBounds, muzzleSpeedFor } from './projectiles.js';
 import { collectTouchedCrates } from './crates.js';
+import { logEvent } from './match-log.js';
 
 export class Fighter extends Character {
   // controller: anything with decideControls(game, fighter, stepSeconds); see controllers.js and bot.js.
@@ -99,6 +100,12 @@ export class Fighter extends Character {
     this.launchIntoAir(knockbackVelocity);
   }
 
+  // Collected weapons are lost with the life, so the log notes any limited-ammo shots that went unused.
+  onLostLife(game) {
+    const limitedAmmoCarried = this.arsenal.carriedWeapons.reduce((total, carried) => total + (carried.ammoRemaining ?? 0), 0);
+    logEvent(game, { type: 'lostLife', characterId: this.id, limitedAmmoCarried });
+  }
+
   // On top of a random comet that no other fighter is standing on, carrying only the starting weapon.
   respawn(game) {
     const occupiedCometIndexes = game.fighters
@@ -119,11 +126,18 @@ export class Fighter extends Character {
     if (length(aimOffset) === 0) return false;
     // Worked out before firing, since firing a weapon's last shot drops it.
     const firingWeaponNames = weaponsThatFire(this.arsenal, weapons);
+    const firedWith = selectedWeapon(this.arsenal);
+    const limitedAmmo = firedWith.ammoRemaining !== null;
     if (!tryFire(this.arsenal, weapons)) return false;
     for (const weaponName of firingWeaponNames) {
       const muzzleSpeed = muzzleSpeedFor(weapons[weaponName], length(aimOffset), aiming);
-      game.projectiles.push(createProjectile(this, normalize(aimOffset), weapons[weaponName], muzzleSpeed, game.settings.rules.shotsCanHurtTheirShooter));
+      const projectile = createProjectile(this, normalize(aimOffset), weapons[weaponName], muzzleSpeed, game.settings.rules.shotsCanHurtTheirShooter);
+      // For the match log: which weapon, and whether it cost limited ammo (every shot of a Barrage does).
+      projectile.weaponName = weaponName;
+      projectile.limitedAmmo = limitedAmmo;
+      game.projectiles.push(projectile);
     }
+    logEvent(game, { type: 'fired', fighterId: this.id, weaponName: firedWith.weaponName, limitedAmmo });
     return true;
   }
 }

@@ -4,6 +4,7 @@ import { createGame, stepGame } from './game.js';
 import { HumanController } from './controllers.js';
 import { createInput } from './input.js';
 import { createView, drawGame, screenToWorld } from './render.js';
+import { summarizeMatchLog } from './match-log.js';
 
 const canvas = document.getElementById('game');
 const context = canvas.getContext('2d');
@@ -29,12 +30,17 @@ function fitCanvasToWindow() {
 window.addEventListener('resize', fitCanvasToWindow);
 fitCanvasToWindow();
 
+// Logs of matches ended with R, kept so they can still be looked at.
+const finishedMatchLogs = [];
 let previousFrameTime = null;
 let unsimulatedSeconds = 0;
 function onFrame(frameTime) {
   if (previousFrameTime !== null) unsimulatedSeconds += Math.min(longestCatchUpSeconds, (frameTime - previousFrameTime) / 1000);
   previousFrameTime = frameTime;
-  if (input.takeRestartRequest()) game = createGame(settings, Math.random, keyboardAndMouse);
+  if (input.takeRestartRequest()) {
+    finishedMatchLogs.push(game.matchLog);
+    game = createGame(settings, Math.random, keyboardAndMouse);
+  }
   while (unsimulatedSeconds >= stepSeconds) {
     stepGame(game, stepSeconds);
     unsimulatedSeconds -= stepSeconds;
@@ -45,4 +51,12 @@ function onFrame(frameTime) {
 requestAnimationFrame(onFrame);
 
 // For poking at the game from the browser console while tuning.
-window.cometHop = { get game() { return game; }, settings, screenToWorld: (point) => screenToWorld(view, point) };
+window.cometHop = {
+  get game() { return game; },
+  settings,
+  screenToWorld: (point) => screenToWorld(view, point),
+  // Summaries of the current match and of earlier ones (ended with R), for checking how shots get spent.
+  summary: () => summarizeMatchLog(game.matchLog),
+  earlierMatchSummaries: () => finishedMatchLogs.map(summarizeMatchLog),
+  finishedMatchLogs,
+};
