@@ -7,7 +7,9 @@
 //   the shortest route of comets to it); otherwise wanders (runs, stands, sometimes jumps).
 // - Drills: it keeps them for a target hidden behind a comet (the one the target stands on, or the bot's own when they
 //   share a comet), and then drills straight at it through that comet at full power. That guards its approach to a
-//   comet where its enemy waits on the far side. Otherwise (when saving ammo) it only uses a drill to finish someone off.
+//   comet where its enemy waits on the far side. It also drills the spot where an airborne enemy is about to land, when
+//   the drill would come out there just as they touch down. Otherwise (when saving ammo) it only uses a drill to finish
+//   someone off.
 // - The drone: it takes a Blaster shot at the drone when it has no shot at its enemy and the drone happens to be in
 //   reach, but never goes out of its way for it, never switches weapon for it, and never spends limited ammo on it.
 // - Choosing a weapon: its hardest-hitting one that can reach the target, but never a bursting or exploding one at a
@@ -21,6 +23,7 @@
 //   from where it's headed rather than wandering into the blast.
 import { add, scale, subtract, distance, length, normalize, dot, directionFromAngle, distanceFromPointToSegment } from './vector.js';
 import { selectedWeapon, weaponsThatFire } from './weapons.js';
+import { predictLanding } from './fighter.js';
 import { idleControls } from './controllers.js';
 
 export class BotController {
@@ -58,7 +61,8 @@ export class BotController {
 
     const target = nearestEnemy(game, fighter);
     const seenTargetPosition = target ? this.rememberAndRecall(target, botSettings) : null;
-    const drillMoment = Boolean(target) && isDrillMoment(game, fighter, target);
+    const landingDrill = target ? this.landingDrillAim(game, fighter, target) : null;
+    const drillMoment = Boolean(target) && (landingDrill !== null || isDrillMoment(game, fighter, target));
     const shot = target ? this.aimAt(game, fighter, target, seenTargetPosition, drillMoment) : null;
 
     this.secondsUntilNextDecision -= stepSeconds;
@@ -84,6 +88,12 @@ export class BotController {
       this.lobBeingAimed = shot.isLob && shot.worthFiring
         ? { firedFrom: { ...fighter.position }, targetId: target.id, targetPositionThen: { ...target.position }, explosive: shot.explosive, blastRadius: shot.blastRadius }
         : null;
+      // A drill at the spot its enemy is about to land on, timed to arrive as they touch down.
+      if (landingDrill && drillsThroughComets(game.settings.weapons[selectedWeapon(fighter.arsenal).weaponName])) {
+        controls.aimPoint = landingDrill.aimPoint;
+        controls.fireHeld = !controls.switchWeaponRequested;
+        this.lobBeingAimed = null;
+      }
     }
     // Nothing to shoot at its enemy right now: a passing shot at the drone, if it happens to be in reach.
     if (!(shot && shot.worthFiring) && !controls.switchWeaponRequested) {
@@ -160,6 +170,29 @@ export class BotController {
   }
 
   // Works out the aim point and whether a shot is worth taking now, using only rules of thumb.
+  // A drill at where an airborne target is about to land, if one aimed straight at that spot would bore into the comet
+  // it's landing on, come out right under it, and get there just as it lands. Returns { aimPoint } or null.
+  landingDrillAim(game, fighter, target) {
+    const { weapons, aiming, physics, bot: botSettings } = game.settings;
+    if (target.movementMode !== 'airborne' || fighter.movementMode !== 'grounded') return null;
+    const drill = fighter.arsenal.carriedWeapons.find((carried) => drillsThroughComets(weapons[carried.weaponName]) && carried.ammoRemaining > 0);
+    if (!drill) return null;
+    const landing = predictLanding(target, game.comets, 1 / physics.stepsPerSecond, botSettings.landingLookAheadSeconds);
+    if (!landing) return null;
+    const comet = game.comets[landing.cometIndex];
+    const comesOutAt = add(comet.centre, scale(normalize(subtract(landing.position, comet.centre)), comet.radius));
+    if (firstCometADrillWouldBoreInto(game, fighter, comesOutAt) !== landing.cometIndex) return null;
+    const drillDefinition = weapons[drill.weaponName];
+    const distanceToSpot = distance(fighter.position, comesOutAt);
+    if (isTooCloseFor(game, drillDefinition, distanceToSpot) || !isWithinReach(game, drillDefinition, distanceToSpot)) return null;
+    // Its rough sense of the drill's flight time: straight-line distance at full speed.
+    const drillSeconds = distanceToSpot / drillDefinition.muzzleSpeedRange.fastest;
+    if (Math.abs(drillSeconds - landing.seconds) > botSettings.landingDrillTimingSeconds) return null;
+    const towardsSpot = subtract(comesOutAt, fighter.position);
+    const direction = directionFromAngle(Math.atan2(towardsSpot.y, towardsSpot.x) + this.wobble.turnRadians);
+    return { aimPoint: add(fighter.position, scale(direction, aiming.mouseDistanceForFullPower)) };
+  }
+
   // drillMoment: the target is hidden behind a comet a drill can bore through (see isDrillMoment).
   aimAt(game, fighter, target, seenTargetPosition, drillMoment = false) {
     const { weapons, aiming, bot: botSettings } = game.settings;
@@ -378,6 +411,18 @@ function drillsThroughComets(weaponDefinition) {
   return weaponDefinition.detonation?.trigger === 'leavingFirstComet';
 }
 
+// The comet a drill aimed straight from the fighter at a point would bore into first (its own, if aimed into it), or
+// null if the straight line passes through no comet.
+function firstCometADrillWouldBoreInto(game, fighter, point) {
+  const towardsPoint = subtract(point, fighter.position);
+  const cometsBoredInto = game.comets
+    .map((comet, cometIndex) => ({ cometIndex, alongTheWay: dot(subtract(comet.centre, fighter.position), towardsPoint) }))
+    // Slightly inside the surface, so a line that only grazes a comet, or ends on its near surface, doesn't count.
+    .filter(({ cometIndex }) => distanceFromPointToSegment(game.comets[cometIndex].centre, fighter.position, point) < game.comets[cometIndex].radius - 0.05)
+    .sort((first, second) => first.alongTheWay - second.alongTheWay);
+  return cometsBoredInto.length > 0 ? cometsBoredInto[0].cometIndex : null;
+}
+
 // A drill moment: the bot (on solid ground, carrying a drill) can't see its target, which is standing on a comet, and
 // that comet is the first thing a drill aimed straight at the target would bore into. (If they share a comet, that's
 // the bot's own comet, and the drill goes straight through it.)
@@ -386,17 +431,7 @@ export function isDrillMoment(game, fighter, target) {
   const carryingDrill = fighter.arsenal.carriedWeapons.some((carried) => drillsThroughComets(weapons[carried.weaponName]) && carried.ammoRemaining > 0);
   if (!carryingDrill || fighter.movementMode !== 'grounded' || target.movementMode !== 'grounded') return false;
   if (hasClearLineOfSight(game, fighter.position, target.position)) return false;
-  if (fighter.groundedCometIndex === target.groundedCometIndex) return true;
-  const ownComet = game.comets[fighter.groundedCometIndex];
-  // A shot that would first bore into the bot's own comet comes out somewhere else entirely.
-  if (distanceFromPointToSegment(ownComet.centre, fighter.position, target.position) < ownComet.radius) return false;
-  const towardsTarget = subtract(target.position, fighter.position);
-  const cometsInTheWay = game.comets
-    .map((comet, cometIndex) => ({ cometIndex, alongTheWay: dot(subtract(comet.centre, fighter.position), towardsTarget) }))
-    .filter(({ cometIndex }) => cometIndex !== fighter.groundedCometIndex
-      && distanceFromPointToSegment(game.comets[cometIndex].centre, fighter.position, target.position) < game.comets[cometIndex].radius)
-    .sort((first, second) => first.alongTheWay - second.alongTheWay);
-  return cometsInTheWay.length > 0 && cometsInTheWay[0].cometIndex === target.groundedCometIndex;
+  return firstCometADrillWouldBoreInto(game, fighter, target.position) === target.groundedCometIndex;
 }
 
 function hasClearLineOfSight(game, fromPoint, toPoint) {

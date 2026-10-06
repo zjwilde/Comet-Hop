@@ -146,3 +146,22 @@ function wrapAngle(angle) {
   const fullTurn = 2 * Math.PI;
   return ((angle % fullTurn) + fullTurn) % fullTurn;
 }
+
+// Where and when an airborne fighter will land if nothing changes (no knockback): follows its fall for up to
+// lookAheadSeconds with the same steps and landing rule as real movement. Returns { cometIndex, position, seconds },
+// or null if it won't land that soon (or isn't in the air).
+export function predictLanding(fighter, comets, stepSeconds, lookAheadSeconds) {
+  if (fighter.movementMode !== 'airborne') return null;
+  let position = { ...fighter.position };
+  let velocity = { ...fighter.velocity };
+  for (let step = 1; step * stepSeconds <= lookAheadSeconds + 1e-9; step += 1) {
+    velocity = add(velocity, scale(gravityAt(position, comets), stepSeconds));
+    position = add(position, scale(velocity, stepSeconds));
+    const cometIndex = comets.findIndex((comet) => {
+      const offsetFromCentre = subtract(position, comet.centre);
+      return length(offsetFromCentre) <= comet.radius + fighter.bodyRadius && dot(velocity, offsetFromCentre) < 0;
+    });
+    if (cometIndex >= 0) return { cometIndex, position, seconds: step * stepSeconds };
+  }
+  return null;
+}

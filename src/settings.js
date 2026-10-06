@@ -97,6 +97,10 @@ export const settings = {
     zeroedInMetres: 2.5,
     easyStraightShotReachFraction: 0.5,
     desperateHealthFraction: 0.3,
+    // Drilling where its enemy is about to land: it reads an airborne enemy's fall up to this far ahead, and fires a
+    // drill when the drill would arrive within this many seconds of the landing.
+    landingLookAheadSeconds: 1.5,
+    landingDrillTimingSeconds: 0.12,
   },
 
   // The floating drone: a neutral hazard. It shoots a ring of shots in every direction now and then, can be shot by

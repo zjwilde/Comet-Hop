@@ -122,7 +122,9 @@ Plain ES modules in `src/`, all tunable numbers in `src/settings.js`. `npm start
   Drills (user's idea, after beating the hardest bot by waiting on the far side of a comet and drilling it as it
   landed): the bot keeps drills in reserve for a target hidden behind a comet it can bore through (the target's own
   comet, or the shared one), drilling straight at it at full power, which guards its approach; otherwise it only uses
-  a drill to finish someone off. Easy bots still spend drills freely. Difficulty
+  a drill to finish someone off. Easy bots still spend drills freely. It also drills the spot where an airborne
+  enemy is about to land (user's idea), reading their fall up to 1.5 s ahead with `predictLanding` (same physics as
+  real movement, tested to match exactly) and firing when the drill's rough flight time matches the landing time. Difficulty
   lives in a few plain settings (reaction, wobble, correction) under `bot` in `src/settings.js`.
 - Weapons are still plain settings data with behaviour flags (`passesThroughComets`, `eruption`,
   `firesAllCarriedWeapons`); likely to become classes once there are many more.

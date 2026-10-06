@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createComets } from '../src/gravity.js';
-import { Fighter } from '../src/fighter.js';
+import { Fighter, predictLanding } from '../src/fighter.js';
 import { IdleController } from '../src/controllers.js';
 import { distance, length, dot } from '../src/vector.js';
 import { copyOfSettings } from './helpers.js';
@@ -93,4 +93,23 @@ test('knockback lifts a grounded player into the air', () => {
   player.launchIntoAir({ x: 2, y: -2 });
   assert.equal(player.movementMode, 'airborne');
   assert.deepEqual(player.velocity, { x: 2, y: -2 });
+});
+
+test('predicting where an airborne fighter lands gives exactly where and when it really does', () => {
+  const realComets = createComets(settings.cometLayout, settings.physics.cometSurfaceGravity);
+  for (const [cometIndex, angle, runDirection] of [[0, -1, 1], [3, 2, -1], [5, -2.5, 0]]) {
+    const fighter = new Fighter('player', new IdleController(), settings.fighter, settings.rules);
+    fighter.placeOnComet(realComets, cometIndex, angle);
+    fighter.updateMovement({ runDirection, jumpRequested: true }, stepSeconds, realComets, settings.fighter);
+    const predicted = predictLanding(fighter, realComets, stepSeconds, 10);
+    let seconds = 0;
+    while (fighter.movementMode === 'airborne' && seconds < 10) {
+      fighter.updateMovement({ runDirection: 0, jumpRequested: false }, stepSeconds, realComets, settings.fighter);
+      seconds += stepSeconds;
+    }
+    assert.ok(predicted, 'predicted a landing');
+    assert.equal(predicted.cometIndex, fighter.groundedCometIndex);
+    assert.ok(Math.abs(predicted.seconds - seconds) < 1e-9, `landing time: predicted ${predicted.seconds}, really ${seconds}`);
+    assert.ok(distance(predicted.position, fighter.position) < 0.2, 'landing spot');
+  }
 });

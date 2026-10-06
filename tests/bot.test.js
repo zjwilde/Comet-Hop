@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { createGame, stepGame } from '../src/game.js';
 import { HumanController } from '../src/controllers.js';
 import { isDrillMoment } from '../src/bot.js';
+import { predictLanding } from '../src/fighter.js';
 import { copyOfSettings, createSeededRandom, noControls } from './helpers.js';
 
 const stepSeconds = 1 / 120;
@@ -316,14 +317,38 @@ test('from a neighbouring comet, the bot drills through the enemy\'s comet at an
   assert.equal(drillsLeft(), 2, 'with its first drill');
 });
 
-test('otherwise the bot keeps its drills in reserve, even when its enemy is in the air in plain view', async () => {
+test('otherwise the bot keeps its drills in reserve: an enemy in the air is not a reason to spend one', async () => {
   const probe = await botMatch(6);
   const facing = angleBetween(probe, 3, 4);
-  const { game, drillsLeft, playFor } = await drillScenario({ botComet: 3, botAngle: facing, playerComet: 4, playerAngle: facing + Math.PI });
+  // The enemy in plain view on the near side of the neighbouring comet, in the air (an ordinary good moment).
+  const { game } = await drillScenario({ botComet: 3, botAngle: facing, playerComet: 4, playerAngle: facing + Math.PI });
+  game.player.launchIntoAir({ x: 0, y: -1 });
+  const punch = game.settings.weapons.drill.damage + game.settings.weapons.drill.detonation.damageAtCentre;
+  assert.equal(game.bot.controller.isGoodMomentToSpend(game, game.bot, game.player, 'drill', punch), false, 'not for a drill');
+  assert.equal(game.bot.controller.isGoodMomentToSpend(game, game.bot, game.player, 'heavyCannon', 30), true, 'though it is for other weapons');
+  game.player.vitals.health = 10;
+  assert.equal(game.bot.controller.isGoodMomentToSpend(game, game.bot, game.player, 'drill', punch), true, 'but a drill can finish someone off');
+});
+
+test('the bot drills the spot where its enemy is about to land, timed so the blast catches them coming down', async () => {
+  // The enemy keeps hopping straight up from the far side of the bot's comet, coming back down out of sight.
+  const { game, drillsLeft } = await drillScenario({ botComet: 5, botAngle: -Math.PI / 2, playerComet: 5, playerAngle: Math.PI / 2 });
   game.player.controller = new HumanController(() => ({ ...noControls, jumpRequested: game.player.movementMode === 'grounded', aimPoint: { ...game.player.position } }));
-  makePlayerUnhurtable(game);
-  playFor(15);
-  assert.equal(drillsLeft(), 3);
+  const comet = game.comets[5];
+  let drillsFiredWhileAirborne = 0;
+  let hitsJustAboveTheSurface = 0;
+  for (let step = 0; step < 10 / stepSeconds; step += 1) {
+    const drillsBefore = drillsLeft();
+    const healthBefore = game.player.vitals.health;
+    const wasAirborne = game.player.movementMode === 'airborne';
+    const heightAboveSurface = Math.hypot(game.player.position.x - comet.centre.x, game.player.position.y - comet.centre.y) - comet.radius - game.player.bodyRadius;
+    stepGame(game, stepSeconds);
+    if (drillsLeft() < drillsBefore && wasAirborne) drillsFiredWhileAirborne += 1;
+    // The blast goes off just as they come down: in the air, within a metre of the comet's surface.
+    if (game.player.vitals.health < healthBefore && wasAirborne && heightAboveSurface < 1) hitsJustAboveTheSurface += 1;
+  }
+  assert.ok(drillsFiredWhileAirborne >= 1, 'fired a drill while the enemy was still in the air');
+  assert.ok(hitsJustAboveTheSurface >= 1, 'and the blast caught them coming down');
 });
 
 test('it is only a drill moment when the comet a drill would bore into first is the one the enemy stands on', async () => {
@@ -337,4 +362,32 @@ test('it is only a drill moment when the comet a drill would bore into first is 
   // In plain view: no need to drill.
   game.player.placeOnComet(game.comets, 3, Math.PI - 0.3);
   assert.equal(isDrillMoment(game, game.bot, game.player), false, 'in plain view');
+});
+
+test('the landing drill waits for the moment the drill would arrive as its enemy lands, not as soon as it sees the landing', async () => {
+  const { game } = await drillScenario({ botComet: 5, botAngle: -Math.PI / 2, playerComet: 5, playerAngle: Math.PI / 2 });
+  const comet = game.comets[5];
+  // The enemy drops from well below the comet, falling straight back up onto its underside, out of the bot's sight.
+  game.player.movementMode = 'airborne';
+  game.player.groundedCometIndex = null;
+  game.player.position = { x: comet.centre.x, y: comet.centre.y + comet.radius + 6 };
+  game.player.velocity = { x: 0, y: 0 };
+  const drill = game.settings.weapons.drill;
+  const momentsItWantedToFire = [];
+  for (let step = 0; step < 5 / stepSeconds && game.player.movementMode === 'airborne'; step += 1) {
+    const landing = predictLanding(game.player, game.comets, stepSeconds, 10);
+    if (game.bot.controller.landingDrillAim(game, game.bot, game.player)) {
+      // Other comets pull the falling enemy a little sideways, so measure to where it will really land.
+      const fromCentre = Math.hypot(landing.position.x - comet.centre.x, landing.position.y - comet.centre.y);
+      const comesOutAt = { x: comet.centre.x + ((landing.position.x - comet.centre.x) / fromCentre) * comet.radius, y: comet.centre.y + ((landing.position.y - comet.centre.y) / fromCentre) * comet.radius };
+      const drillSeconds = Math.hypot(comesOutAt.x - game.bot.position.x, comesOutAt.y - game.bot.position.y) / drill.muzzleSpeedRange.fastest;
+      momentsItWantedToFire.push({ secondsLeft: landing.seconds, drillSeconds });
+    }
+    game.player.updateMovement(noControls, stepSeconds, game.comets, game.settings.fighter);
+  }
+  assert.ok(momentsItWantedToFire.length > 0, 'it wanted to fire at some point');
+  for (const { secondsLeft, drillSeconds } of momentsItWantedToFire) {
+    assert.ok(Math.abs(secondsLeft - drillSeconds) <= game.settings.bot.landingDrillTimingSeconds + 1e-9, `wanted to fire with ${secondsLeft.toFixed(2)} s left; the drill takes ${drillSeconds.toFixed(2)} s`);
+  }
+  assert.ok(momentsItWantedToFire.every(({ secondsLeft }) => secondsLeft < 1), 'not while the landing was still far off');
 });
