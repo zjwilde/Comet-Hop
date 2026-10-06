@@ -34,4 +34,10 @@ test('the log records limited-ammo shots, where they land, hits, and unused ammo
   assert.equal(summary.player.limitedLandingsUseful, 1, 'it hit the bot');
   assert.equal(summary.player.damageDealt, 10, 'the damage actually taken: the bot only had 10 health');
   assert.deepEqual(summary.bot.livesLost.map((life) => life.unusedLimitedShots), [settings.weapons.mortar.ammoPerPickup]);
+  assert.equal(summary.player.livesLost.length, 0);
+});
+
+test('a life lost with no limited ammo left still counts, as zero unused shots', () => {
+  const summary = summarizeMatchLog([{ seconds: 5, type: 'lostLife', characterId: 'player', limitedAmmoCarried: 0 }]);
+  assert.deepEqual(summary.player.livesLost, [{ atSeconds: 5, unusedLimitedShots: 0 }]);
 });

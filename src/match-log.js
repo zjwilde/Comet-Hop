@@ -33,7 +33,7 @@ export function summarizeMatchLog(matchLog) {
       if (event.distanceToNearestEnemy <= usefulLandingMetres) owner.limitedLandingsUseful += 1;
     }
     if (event.type === 'hit' && event.fromId !== 'drone') fighterSummary(event.fromId).damageDealt += event.damage;
-    if (event.type === 'lostLife' && event.limitedAmmoCarried) {
+    if (event.type === 'lostLife') {
       fighterSummary(event.characterId).livesLost.push({ atSeconds: event.seconds, unusedLimitedShots: event.limitedAmmoCarried });
     }
   }
