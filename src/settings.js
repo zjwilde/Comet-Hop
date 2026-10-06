@@ -87,6 +87,14 @@ export const settings = {
     // exploding shots (anyone's) heading for it within dangerZoneMetres.
     pointBlankMetres: 4,
     dangerZoneMetres: 3,
+    // Saving ammo like a person: it pokes with weapons that never run out, and spends a limited-ammo shot only at a
+    // good moment: the target is in the air (can't dodge), could be finished off, has stood still this long, or (for
+    // lobs) its last lob at this target landed this close; or a straight shot is within this fraction of its reach
+    // with nothing in the way; or the bot itself is down to this fraction of its health.
+    sittingDuckSeconds: 1.5,
+    zeroedInMetres: 2.5,
+    easyStraightShotReachFraction: 0.5,
+    desperateHealthFraction: 0.3,
   },
 
   // The floating drone: a neutral hazard. It shoots a ring of shots in every direction now and then, can be shot by

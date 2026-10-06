@@ -3,7 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, stepGame } from '../src/game.js';
-import { copyOfSettings, createSeededRandom } from './helpers.js';
+import { HumanController } from '../src/controllers.js';
+import { copyOfSettings, createSeededRandom, noControls } from './helpers.js';
 
 const stepSeconds = 1 / 120;
 
@@ -111,7 +112,7 @@ test('the bot learns from misses: its lobs come down much closer to a target tha
       const lobsInTheAir = game.projectiles.filter((projectile) => projectile.ownerId === 'bot' && projectile.adjustablePower).length;
       mostLobsInTheAirAtOnce = Math.max(mostLobsInTheAirAtOnce, lobsInTheAir);
       for (const landing of game.latestLandings) {
-        if (landing.ownerId === 'bot') misses.push(Math.hypot(landing.position.x - game.player.position.x, landing.position.y - game.player.position.y));
+        if (landing.ownerId === 'bot' && landing.adjustablePower) misses.push(Math.hypot(landing.position.x - game.player.position.x, landing.position.y - game.player.position.y));
       }
     }
     assert.equal(mostLobsInTheAirAtOnce, 1, 'watches each lob land before firing the next');
@@ -179,4 +180,54 @@ test('with a mortar the bot rarely hurts itself, yet still lands its shells near
   // About 2% now; without stepping back from its own lobs it was about 10%, before the fixes nearly 30%.
   assert.ok(selfHits <= mortarShots * 0.05, `${selfHits} self-hits from ${mortarShots} shots`);
   assert.ok(landingsNearTarget >= mortarShots * 0.5, `only ${landingsNearTarget} of ${mortarShots} landed near the target`);
+});
+
+// Sets up the bot with a mortar and a volcano bomb, and the player on the neighbouring comet within their reach,
+// driven by the given controls each step. Returns the game and a function giving the bot's limited ammo left.
+async function ammoScenario(playerControlsAt, adjustSettings = () => {}) {
+  const game = await botMatch(1, (settings) => {
+    adjustSettings(settings);
+    settings.crates.spawnIntervalSeconds = 1000;
+    settings.bot.chanceToJumpPerDecision = 0;
+    settings.bot.chanceToStandStillPerDecision = 1;
+  });
+  game.bot.placeOnComet(game.comets, 3, -Math.PI / 2);
+  game.player.placeOnComet(game.comets, 4, Math.PI * 0.75);
+  game.bot.arsenal.carriedWeapons.push({ weaponName: 'mortar', ammoRemaining: 3 }, { weaponName: 'volcanoBomb', ammoRemaining: 3 });
+  let elapsed = 0;
+  game.player.controller = new HumanController(() => playerControlsAt(elapsed, game));
+  const limitedAmmoLeft = () => game.bot.arsenal.carriedWeapons.filter((carried) => carried.ammoRemaining !== null).reduce((total, carried) => total + carried.ammoRemaining, 0);
+  const play = (seconds) => {
+    for (let step = 0; step < seconds / stepSeconds; step += 1) {
+      stepGame(game, stepSeconds);
+      elapsed += stepSeconds;
+    }
+  };
+  return { game, limitedAmmoLeft, play };
+}
+
+const runningBackAndForth = (elapsed, game) => ({ ...noControls, runDirection: Math.floor(elapsed) % 2 === 0 ? 1 : -1, aimPoint: { ...game.player.position } });
+
+test('the bot saves limited ammo against a healthy target moving about on the ground', async () => {
+  const { game, limitedAmmoLeft, play } = await ammoScenario(runningBackAndForth);
+  makePlayerUnhurtable(game);
+  play(15);
+  assert.equal(limitedAmmoLeft(), 6, 'kept every mortar and volcano shot');
+});
+
+test('the bot spends limited ammo on a target that is in the air and cannot dodge', async () => {
+  const hoppingInPlace = (elapsed, game) => ({ ...noControls, jumpRequested: game.player.movementMode === 'grounded', aimPoint: { ...game.player.position } });
+  const { game, limitedAmmoLeft, play } = await ammoScenario(hoppingInPlace);
+  makePlayerUnhurtable(game);
+  play(15);
+  assert.ok(limitedAmmoLeft() < 6, 'spent some');
+});
+
+test('the bot spends limited ammo to finish off a target that is nearly dead', async () => {
+  // A harmless blaster, so the player stays nearly dead (rather than dying and respawning, standing still) and only
+  // the "finish them off" reason applies.
+  const { game, limitedAmmoLeft, play } = await ammoScenario(runningBackAndForth, (settings) => { settings.weapons.blaster.damage = 0; });
+  game.player.vitals.health = 20;
+  play(15);
+  assert.ok(limitedAmmoLeft() < 6, 'spent some');
 });

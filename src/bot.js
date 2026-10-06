@@ -6,6 +6,7 @@
 //   neighbouring comet closest to it); otherwise wanders (runs, stands, sometimes jumps).
 // - Choosing a weapon: its hardest-hitting one that can reach the target, but never a bursting or exploding one at a
 //   target close by. Its feel for reach is a rough rule, not a calculation; it won't fire at targets out of reach.
+//   It saves limited ammo for good moments (see isGoodMomentToSpend), poking with the Blaster otherwise.
 // - Straight-flying weapons: points at where it saw the target a moment ago (its reaction time), with some wobble, and
 //   fires when the target is in range with no comet in the way.
 // - Curving weapons (only fired from solid ground): makes a rough first guess (towards the target, tipped up away from its own comet, power by
@@ -35,6 +36,8 @@ export class BotController {
     this.lobBeingAimed = null;
     this.lobInFlight = null;
     this.lessonsCameFrom = null;
+    // How far its last lob at the current target came down from it.
+    this.lastLobMissMetres = Infinity;
     this.cooldownLastStep = 0;
   }
 
@@ -64,7 +67,8 @@ export class BotController {
     if (fighter.movementMode === 'grounded') this.decideGroundMovement(game, fighter, controls, chasing);
 
     if (target) {
-      controls.switchWeaponRequested = selectedWeapon(fighter.arsenal).weaponName !== preferredWeapon(game, fighter, target);
+      const goodMoment = (weaponName, punch) => this.isGoodMomentToSpend(game, fighter, target, weaponName, punch);
+      controls.switchWeaponRequested = selectedWeapon(fighter.arsenal).weaponName !== preferredWeapon(game, fighter, target, goodMoment);
       controls.aimPoint = shot.aimPoint;
       // Not while switching: the aim was worked out for the weapon in hand.
       controls.fireHeld = shot.worthFiring && !controls.switchWeaponRequested;
@@ -113,12 +117,13 @@ export class BotController {
     this.lobCorrection.turnRadians = clamp(this.lobCorrection.turnRadians + correctionFraction * turnMiss, -1, 1);
     const distanceRatio = length(towardsTarget) / Math.max(0.5, length(towardsLanding));
     this.lobCorrection.powerFactor = clamp(this.lobCorrection.powerFactor * (1 + correctionFraction * (distanceRatio - 1)), 0.3, 3);
+    this.lastLobMissMetres = distance(landing.position, target.position);
   }
 
   // Records where the target is now, and returns where it was reactionSeconds ago.
   rememberAndRecall(target, botSettings) {
     this.targetSightings.push({ seconds: this.elapsedSeconds, targetId: target.id, position: { ...target.position } });
-    const oldestWorthKeeping = this.elapsedSeconds - botSettings.reactionSeconds - 0.5;
+    const oldestWorthKeeping = this.elapsedSeconds - Math.max(botSettings.reactionSeconds, botSettings.sittingDuckSeconds) - 0.5;
     this.targetSightings = this.targetSightings.filter((sighting) => sighting.seconds >= oldestWorthKeeping && sighting.targetId === target.id);
     const recalled = this.targetSightings.filter((sighting) => sighting.seconds <= this.elapsedSeconds - botSettings.reactionSeconds).at(-1);
     return (recalled ?? this.targetSightings[0]).position;
@@ -158,6 +163,27 @@ export class BotController {
     return { aimPoint: add(fighter.position, scale(direction, power * aiming.mouseDistanceForFullPower)), worthFiring, inPosition, isLob: true, explosive, blastRadius };
   }
 
+  // Whether now is a good moment to spend a limited-ammo shot of this weapon (punch: how hard it hits) on the target.
+  isGoodMomentToSpend(game, fighter, target, weaponName, punch) {
+    const { weapons, bot: botSettings } = game.settings;
+    const definition = weapons[weaponName];
+    const targetDistance = distance(fighter.position, target.position);
+    const sightingsLongEnough = this.targetSightings.filter((sighting) => sighting.seconds >= this.elapsedSeconds - botSettings.sittingDuckSeconds);
+    const sittingDuck = this.targetSightings.length > 0 && this.targetSightings[0].seconds <= this.elapsedSeconds - botSettings.sittingDuckSeconds
+      && sightingsLongEnough.every((sighting) => distance(sighting.position, target.position) < 0.5);
+    const zeroedIn = Boolean(definition.muzzleSpeedRange || definition.firesAllCarriedWeapons) && this.lessonsCameFrom
+      && this.lessonsCameFrom.targetId === target.id && this.lastLobMissMetres < botSettings.zeroedInMetres;
+    const easyStraightShot = !definition.muzzleSpeedRange && !definition.firesAllCarriedWeapons
+      && targetDistance <= roughReachOf(game, definition) * botSettings.easyStraightShotReachFraction
+      && hasClearLineOfSight(game, fighter.position, target.position);
+    return target.movementMode === 'airborne'
+      || target.vitals.health <= punch
+      || fighter.vitals.health <= fighter.rules.maxHealth * botSettings.desperateHealthFraction
+      || sittingDuck
+      || zeroedIn
+      || easyStraightShot;
+  }
+
   // Lessons from earlier lobs only apply if neither it nor the target has moved much since; otherwise it guesses afresh.
   forgetLobCorrectionsIfThingsMoved(fighter, target, botSettings) {
     const lessons = this.lessonsCameFrom;
@@ -168,6 +194,7 @@ export class BotController {
     if (moved) {
       this.lobCorrection = { turnRadians: 0, powerFactor: 1 };
       this.lessonsCameFrom = null;
+      this.lastLobMissMetres = Infinity;
     }
   }
 
@@ -268,8 +295,9 @@ function isSafeAtThisRange(game, fighter, targetDistance) {
   return !weaponsThatFire(fighter.arsenal, weapons).some((weaponName) => isTooCloseFor(game, weapons[weaponName], targetDistance));
 }
 
-// Its hardest-hitting carried weapon, leaving out bursting or exploding ones when the target is too close for them.
-function preferredWeapon(game, fighter, target) {
+// Its hardest-hitting carried weapon, leaving out bursting or exploding ones when the target is too close for them,
+// and limited-ammo ones unless goodMoment(weaponName, punch) says this is a moment worth spending them.
+function preferredWeapon(game, fighter, target, goodMoment) {
   const { weapons } = game.settings;
   const carriedNames = fighter.arsenal.carriedWeapons.map((carried) => carried.weaponName);
   const punchOf = (weaponName) => {
@@ -290,8 +318,10 @@ function preferredWeapon(game, fighter, target) {
     const aimedWith = weapons[weaponName].firesAllCarriedWeapons ? weapons[carriedNames.filter((name) => !weapons[name].firesAllCarriedWeapons).at(-1)] : weapons[weaponName];
     return isWithinReach(game, aimedWith, targetDistance);
   };
-  const reachingChoices = safeChoices.filter(canReach);
-  const choices = reachingChoices.length > 0 ? reachingChoices : safeChoices;
+  const ammoIsUnlimited = (weaponName) => fighter.arsenal.carriedWeapons.find((carried) => carried.weaponName === weaponName).ammoRemaining === null;
+  const affordable = safeChoices.filter((weaponName) => ammoIsUnlimited(weaponName) || goodMoment(weaponName, punchOf(weaponName)));
+  const reachingChoices = affordable.filter(canReach);
+  const choices = reachingChoices.length > 0 ? reachingChoices : affordable;
   return choices.reduce((best, weaponName) => (punchOf(weaponName) > punchOf(best) ? weaponName : best), choices[0]);
 }
 
