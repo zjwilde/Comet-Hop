@@ -151,3 +151,32 @@ test('the bot keeps its mortar for targets beyond the reach of its big blast', a
   assert.equal(game.bot.arsenal.carriedWeapons[1].ammoRemaining, 99, 'never fired the mortar');
   assert.equal(game.bot.vitals.health, game.settings.rules.maxHealth);
 });
+
+test('with a mortar the bot rarely hurts itself, yet still lands its shells near its target', async () => {
+  let mortarShots = 0;
+  let selfHits = 0;
+  let landingsNearTarget = 0;
+  // Twenty one-minute games: the mortar's useful range is narrow, so it only comes out a couple of times a minute.
+  for (let seed = 1; seed <= 20; seed += 1) {
+    const game = await botMatch(seed, (settings) => { settings.crates.spawnIntervalSeconds = 1000; });
+    game.bot.arsenal.carriedWeapons.push({ weaponName: 'mortar', ammoRemaining: 999 });
+    game.bot.arsenal.selectedIndex = 1;
+    makePlayerUnhurtable(game);
+    const blastReach = game.settings.weapons.mortar.detonation.blastRadius + game.player.bodyRadius;
+    for (let step = 0; step < 60 / stepSeconds; step += 1) {
+      const healthBefore = game.bot.vitals.health;
+      const livesBefore = game.bot.vitals.livesRemaining;
+      stepGame(game, stepSeconds);
+      for (const landing of game.latestLandings) {
+        if (landing.ownerId !== 'bot' || !landing.adjustablePower) continue;
+        mortarShots += 1;
+        if (Math.hypot(landing.position.x - game.player.position.x, landing.position.y - game.player.position.y) < blastReach) landingsNearTarget += 1;
+      }
+      if (game.bot.vitals.health < healthBefore || game.bot.vitals.livesRemaining < livesBefore) selfHits += 1;
+    }
+  }
+  assert.ok(mortarShots >= 20, `only ${mortarShots} mortar shots`);
+  // About 2% now; without stepping back from its own lobs it was about 10%, before the fixes nearly 30%.
+  assert.ok(selfHits <= mortarShots * 0.05, `${selfHits} self-hits from ${mortarShots} shots`);
+  assert.ok(landingsNearTarget >= mortarShots * 0.5, `only ${landingsNearTarget} of ${mortarShots} landed near the target`);
+});

@@ -74,8 +74,9 @@ export const settings = {
     // Curving weapons: a rough first guess, then learning from misses.
     // How much it tips its first guess upward, away from the comet it stands on.
     lobLift: 0.5,
-    // Its rule of thumb for how far a full-power lob carries.
-    metresPerFullPowerGuess: 14,
+    // Its feel for how far a lob weapon carries is the textbook rough rule: speed squared divided by gravity. It won't
+    // lob at a target further than this many times that rough reach (learning from misses can stretch a little).
+    lobReachAllowance: 1.3,
     // How much of each miss it corrects for on its next shot.
     correctionFraction: 0.6,
     // If it or its target has moved this far since its last lob, it starts guessing afresh.

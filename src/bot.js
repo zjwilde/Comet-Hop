@@ -4,12 +4,14 @@
 // - Moving: runs from bursting or exploding shots (anyone's) coming down near it; grabs crates on its own comet; when
 //   it can't shoot its target from where it is, goes after it (runs round towards it on the same comet, or hops to the
 //   neighbouring comet closest to it); otherwise wanders (runs, stands, sometimes jumps).
-// - Choosing a weapon: its hardest-hitting one, but never a bursting or exploding one at a target close by.
+// - Choosing a weapon: its hardest-hitting one that can reach the target, but never a bursting or exploding one at a
+//   target close by. Its feel for reach is a rough rule, not a calculation; it won't fire at targets out of reach.
 // - Straight-flying weapons: points at where it saw the target a moment ago (its reaction time), with some wobble, and
 //   fires when the target is in range with no comet in the way.
-// - Curving weapons: makes a rough first guess (towards the target, tipped up away from its own comet, power by
+// - Curving weapons (only fired from solid ground): makes a rough first guess (towards the target, tipped up away from its own comet, power by
 //   distance), then learns from each miss, nudging its aim by part of how far off the last shot came down. Like an
-//   artillery player, it watches each lob come down before firing the next.
+//   artillery player, it watches each lob come down before firing the next, and after an explosive one it steps back
+//   from where it's headed rather than wandering into the blast.
 import { add, scale, subtract, distance, length, normalize, dot, directionFromAngle, distanceFromPointToSegment } from './vector.js';
 import { selectedWeapon, weaponsThatFire } from './weapons.js';
 import { idleControls } from './controllers.js';
@@ -56,7 +58,9 @@ export class BotController {
       this.wantsToJump = game.random() < botSettings.chanceToJumpPerDecision;
     }
 
-    const chasing = target && !(shot && shot.worthFiring) ? target : null;
+    // It goes after a target only when it couldn't shoot it from here at all; not while merely waiting for its weapon
+    // or watching a lob land (which would carry it under its own falling shell).
+    const chasing = target && !(shot && shot.inPosition) ? target : null;
     if (fighter.movementMode === 'grounded') this.decideGroundMovement(game, fighter, controls, chasing);
 
     if (target) {
@@ -64,7 +68,9 @@ export class BotController {
       controls.aimPoint = shot.aimPoint;
       // Not while switching: the aim was worked out for the weapon in hand.
       controls.fireHeld = shot.worthFiring && !controls.switchWeaponRequested;
-      this.lobBeingAimed = shot.isLob && shot.worthFiring ? { firedFrom: { ...fighter.position }, targetId: target.id, targetPositionThen: { ...target.position } } : null;
+      this.lobBeingAimed = shot.isLob && shot.worthFiring
+        ? { firedFrom: { ...fighter.position }, targetId: target.id, targetPositionThen: { ...target.position }, explosive: shot.explosive, blastRadius: shot.blastRadius }
+        : null;
     }
     return controls;
   }
@@ -130,22 +136,26 @@ export class BotController {
 
     if (!weaponDefinition.muzzleSpeedRange) {
       const direction = directionFromAngle(Math.atan2(towardsTarget.y, towardsTarget.x) + this.wobble.turnRadians);
-      const range = weaponDefinition.projectileSpeed * weaponDefinition.projectileLifetimeSeconds * 0.9;
-      const worthFiring = targetDistance <= range && hasClearLineOfSight(game, fighter.position, seenTargetPosition)
+      const worthFiring = isWithinReach(game, weaponDefinition, targetDistance) && hasClearLineOfSight(game, fighter.position, seenTargetPosition)
         && isSafeAtThisRange(game, fighter, targetDistance);
-      return { aimPoint: add(fighter.position, scale(direction, aiming.mouseDistanceForFullPower)), worthFiring, isLob: false };
+      return { aimPoint: add(fighter.position, scale(direction, aiming.mouseDistanceForFullPower)), worthFiring, inPosition: worthFiring, isLob: false };
     }
 
     // A lob: start from a rough guess, adjusted by what earlier misses taught it about this target.
     this.forgetLobCorrectionsIfThingsMoved(fighter, target, botSettings);
     const roughDirection = normalize(add(normalize(towardsTarget), scale(up, botSettings.lobLift)));
     const direction = directionFromAngle(Math.atan2(roughDirection.y, roughDirection.x) + this.lobCorrection.turnRadians + this.wobble.turnRadians);
-    const roughPower = clamp(targetDistance / botSettings.metresPerFullPowerGuess, 0.15, 1);
-    const power = clamp(roughPower * this.lobCorrection.powerFactor * this.wobble.powerFactor, 0.02, 1);
+    const power = clamp(roughLobPower(game, weaponDefinition, targetDistance) * this.lobCorrection.powerFactor * this.wobble.powerFactor, 0.02, 1);
     // Never lob (or shoot anything that stops at comets) into the ground at its own feet; a drill may go through it.
     const intoOwnComet = !weaponDefinition.passesThroughComets && dot(direction, up) < 0.15;
-    const worthFiring = !intoOwnComet && !this.lobInFlight && isSafeAtThisRange(game, fighter, targetDistance);
-    return { aimPoint: add(fighter.position, scale(direction, power * aiming.mouseDistanceForFullPower)), worthFiring, isLob: true };
+    // In position: it could lob at the target from here. Worth firing: in position, on solid ground (mid-hop it would
+    // aim straight at the target and drop the shell on the comet it's about to land on), and not still watching its
+    // last lob come down.
+    const inPosition = !intoOwnComet && isWithinReach(game, weaponDefinition, targetDistance) && isSafeAtThisRange(game, fighter, targetDistance);
+    const worthFiring = inPosition && fighter.movementMode === 'grounded' && !this.lobInFlight;
+    const explosive = firingNames.some((weaponName) => isBurstingOrExploding(weapons[weaponName]));
+    const blastRadius = Math.max(0, ...firingNames.map((weaponName) => weapons[weaponName].detonation?.blastRadius ?? 0));
+    return { aimPoint: add(fighter.position, scale(direction, power * aiming.mouseDistanceForFullPower)), worthFiring, inPosition, isLob: true, explosive, blastRadius };
   }
 
   // Lessons from earlier lobs only apply if neither it nor the target has moved much since; otherwise it guesses afresh.
@@ -171,6 +181,12 @@ export class BotController {
     const chasingOnThisComet = chasing && chasing.movementMode === 'grounded' && chasing.groundedCometIndex === fighter.groundedCometIndex;
     if (awayFromDanger !== null) {
       controls.runDirection = awayFromDanger;
+    } else if (this.lobInFlight && this.lobInFlight.explosive
+      && distance(fighter.position, this.lobInFlight.targetPositionThen) < game.settings.bot.dangerZoneMetres + this.lobInFlight.blastRadius) {
+      // Steps back from where its own explosive lob is headed, just far enough to be clear, and stays on the ground.
+      const centre = game.comets[fighter.groundedCometIndex].centre;
+      const headedFor = this.lobInFlight.targetPositionThen;
+      controls.runDirection = signedAngleGap(Math.atan2(headedFor.y - centre.y, headedFor.x - centre.x), fighter.angleOnComet) >= 0 ? 1 : -1;
     } else if (towardsCrate !== null) {
       controls.runDirection = towardsCrate;
     } else if (chasingOnThisComet) {
@@ -215,6 +231,26 @@ function upDirection(game, fighter, towardsTarget) {
   return normalize(subtract(fighter.position, game.comets[fighter.groundedCometIndex].centre));
 }
 
+// Its feel for how far a weapon carries. Straight-flying weapons: nearly as far as the shot flies in its lifetime.
+// Lob weapons: the textbook rough rule for a thrown object, speed squared divided by gravity, at full power.
+function roughReachOf(game, weaponDefinition) {
+  if (!weaponDefinition.muzzleSpeedRange) return weaponDefinition.projectileSpeed * weaponDefinition.projectileLifetimeSeconds * 0.9;
+  return weaponDefinition.muzzleSpeedRange.fastest ** 2 / game.settings.physics.cometSurfaceGravity;
+}
+
+function isWithinReach(game, weaponDefinition, targetDistance) {
+  const allowance = weaponDefinition.muzzleSpeedRange ? game.settings.bot.lobReachAllowance : 1;
+  return targetDistance <= roughReachOf(game, weaponDefinition) * allowance;
+}
+
+// The power for a first-guess lob at this distance, by the same rough rule: the speed whose speed squared divided by
+// gravity is the distance.
+function roughLobPower(game, weaponDefinition, targetDistance) {
+  const { slowest, fastest } = weaponDefinition.muzzleSpeedRange;
+  const speedNeeded = Math.sqrt(targetDistance * game.settings.physics.cometSurfaceGravity);
+  return clamp((speedNeeded - slowest) / (fastest - slowest), 0.15, 1);
+}
+
 function isBurstingOrExploding(weaponDefinition) {
   return Boolean(weaponDefinition.eruption || weaponDefinition.detonation);
 }
@@ -248,7 +284,14 @@ function preferredWeapon(game, fighter, target) {
   const tooClose = (weaponName) => (weapons[weaponName].firesAllCarriedWeapons
     ? carriedNames.some((name) => !weapons[name].firesAllCarriedWeapons && isTooCloseFor(game, weapons[name], targetDistance))
     : isTooCloseFor(game, weapons[weaponName], targetDistance));
-  const choices = carriedNames.filter((weaponName) => !tooClose(weaponName));
+  const safeChoices = carriedNames.filter((weaponName) => !tooClose(weaponName));
+  // Prefer what can reach; if nothing can, keep the hardest-hitting safe one ready while it closes in.
+  const canReach = (weaponName) => {
+    const aimedWith = weapons[weaponName].firesAllCarriedWeapons ? weapons[carriedNames.filter((name) => !weapons[name].firesAllCarriedWeapons).at(-1)] : weapons[weaponName];
+    return isWithinReach(game, aimedWith, targetDistance);
+  };
+  const reachingChoices = safeChoices.filter(canReach);
+  const choices = reachingChoices.length > 0 ? reachingChoices : safeChoices;
   return choices.reduce((best, weaponName) => (punchOf(weaponName) > punchOf(best) ? weaponName : best), choices[0]);
 }
 

@@ -106,7 +106,10 @@ Plain ES modules in `src/`, all tunable numbers in `src/settings.js`. `npm start
   superhuman and froze while its shots flew; both rejected). Straight weapons: aims where it saw the target a reaction
   time ago, with wobble, fires in range with a clear line of sight. Lobs: rough first guess, then learns from where each
   lob came down, one lob at a time like an artillery player. Rules of thumb: no explosives at point-blank range, never
-  lob into its own feet, runs from bursting shots coming down near it, chases a target it can't shoot. Difficulty
+  lob into its own feet, runs from bursting shots coming down near it, chases a target it can't shoot. Each weapon
+  has a rough "feel" for reach (lobs: speed squared over gravity) and isn't fired out of reach. Lobs only from solid
+  ground; it doesn't chase while watching its own lob, and steps back from where an explosive lob is headed. (These
+  fixed frequent mortar self-hits the user reported: nearly 30% of shots, now about 2%.) Difficulty
   lives in a few plain settings (reaction, wobble, correction) under `bot` in `src/settings.js`.
 - Weapons are still plain settings data with behaviour flags (`passesThroughComets`, `eruption`,
   `firesAllCarriedWeapons`); likely to become classes once there are many more.
