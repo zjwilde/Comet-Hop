@@ -327,7 +327,7 @@ function drawHud(context, game, view) {
   context.fillStyle = colours.dimText;
   context.textAlign = 'left';
   context.textBaseline = 'bottom';
-  context.fillText('Left/Right: run   Up: jump   Mouse: aim (distance = power)   Click: fire   Tab: switch weapon   R: restart', 16, view.canvasHeight - 12);
+  context.fillText('A/D: run   W: jump   Mouse: aim (distance = power)   Click: fire   Tab: switch weapon   R: restart', 16, view.canvasHeight - 12);
 
   context.textAlign = 'center';
   context.textBaseline = 'middle';

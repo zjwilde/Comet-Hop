@@ -19,9 +19,10 @@ Game's existing "abilities as moves with limits" approach to player movement.
 
 ## Controls (decided)
 
-- **Left arrow:** run counterclockwise around the comet currently stood on.
-- **Right arrow:** run clockwise around the comet currently stood on.
-- **Up:** jump (leaves the surface).
+- **A:** run counterclockwise around the comet currently stood on.
+- **D:** run clockwise around the comet currently stood on.
+- **W:** jump (leaves the surface). (Changed from the arrow keys to W/A/D on 2026-10-06. Bindings live in one table at
+  the top of `src/input.js`.)
 - **Mouse position:** aim direction, independent of movement.
 - **Left mouse button:** fire the current weapon.
 - **Tab:** switch weapon. **R:** restart.

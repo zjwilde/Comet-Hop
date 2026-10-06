@@ -37,7 +37,7 @@ test('running turns at run speed divided by comet radius, so a comet twice as bi
   assert.ok(Math.abs(onSmall.angleOnComet / onBig.angleOnComet - 2) < 1e-9);
 });
 
-test('right arrow runs clockwise on screen: from the top of a comet it moves right', () => {
+test('running clockwise (the D key) on screen: from the top of a comet it moves right', () => {
   const player = playerStandingOn(0, -Math.PI / 2);
   const startX = player.position.x;
   runFor(player, { runDirection: 1, jumpRequested: false }, 0.1);
