@@ -36,6 +36,14 @@ export function giveWeapon(arsenal, weaponName, weaponDefinitions) {
   arsenal.selectedIndex = arsenal.carriedWeapons.length - 1;
 }
 
+// The weapons whose shots come out when firing: just the selected one, or for a weapon that fires all carried
+// weapons (the Barrage), every other weapon carried. Returns weapon names.
+export function weaponsThatFire(arsenal, weaponDefinitions) {
+  const selectedName = selectedWeapon(arsenal).weaponName;
+  if (!weaponDefinitions[selectedName].firesAllCarriedWeapons) return [selectedName];
+  return arsenal.carriedWeapons.map((carried) => carried.weaponName).filter((weaponName) => !weaponDefinitions[weaponName].firesAllCarriedWeapons);
+}
+
 // Fires the selected weapon if its cooldown has finished. Returns that weapon's definition, or null if it can't fire.
 export function tryFire(arsenal, weaponDefinitions) {
   if (arsenal.cooldownSecondsRemaining > 0) return null;

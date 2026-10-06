@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createArsenal, tryFire, updateArsenalCooldown, giveWeapon, selectNextWeapon, selectedWeapon } from '../src/weapons.js';
+import { createArsenal, tryFire, updateArsenalCooldown, giveWeapon, selectNextWeapon, selectedWeapon, weaponsThatFire } from '../src/weapons.js';
 import { copyOfSettings } from './helpers.js';
 
 const { weapons } = await copyOfSettings();
@@ -49,4 +49,12 @@ test('switching weapons cycles through everything carried and wraps around', () 
   assert.equal(selectedWeapon(arsenal).weaponName, 'blaster');
   selectNextWeapon(arsenal);
   assert.equal(selectedWeapon(arsenal).weaponName, 'heavyCannon');
+});
+
+test('with the Barrage selected, every other carried weapon fires; otherwise just the selected one', () => {
+  const arsenal = createArsenal();
+  giveWeapon(arsenal, 'drill', weapons);
+  assert.deepEqual(weaponsThatFire(arsenal, weapons), ['drill']);
+  giveWeapon(arsenal, 'barrage', weapons);
+  assert.deepEqual(weaponsThatFire(arsenal, weapons), ['blaster', 'drill']);
 });

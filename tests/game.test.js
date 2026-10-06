@@ -1,88 +1,90 @@
-// Whole-game behaviour: shooting, hits, crates, lives, and how a game ends.
+// Whole-game behaviour: shooting, hits, crates and loot, the drone, lives, and how a match ends.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, stepGame } from '../src/game.js';
 import { createProjectile, updateProjectiles } from '../src/projectiles.js';
-import { add, scale } from '../src/vector.js';
-import { selectedWeapon } from '../src/weapons.js';
+import { add, scale, distance } from '../src/vector.js';
+import { selectedWeapon, giveWeapon } from '../src/weapons.js';
 import { copyOfSettings, createSeededRandom, noControls } from './helpers.js';
 
 const stepSeconds = 1 / 120;
 
-async function newGame(seed = 1) {
-  return createGame(await copyOfSettings(), createSeededRandom(seed));
+// A game where the bot stands idle and (unless asked for) there is no drone, so tests control everything that happens.
+async function quietGame({ withDrone = false, seed = 1 } = {}) {
+  const settings = await copyOfSettings();
+  settings.drone.includeInMatch = withDrone;
+  return createGame(settings, createSeededRandom(seed));
 }
 
-// Parks the drone in open space just to the right of the player and stops it moving, so shots can be aimed at it.
-function parkDroneNextToPlayer(game, gapMetres) {
-  game.drone.position = add(game.player.position, { x: game.player.bodyRadius + game.drone.bodyRadius + gapMetres, y: 0 });
-  game.drone.waypoint = { ...game.drone.position };
-  game.settings.drone.cruiseSpeed = 0;
+function stepFor(game, playerControls, seconds) {
+  for (let step = 0; step < Math.round(seconds / stepSeconds); step += 1) {
+    stepGame(game, { player: playerControls, bot: noControls }, stepSeconds);
+  }
 }
 
-function stepFor(game, controls, seconds) {
-  for (let step = 0; step < Math.round(seconds / stepSeconds); step += 1) stepGame(game, controls, stepSeconds);
+// Moves the bot into open space just to the right of the player, so shots can be aimed at it.
+function parkBotNextToPlayer(game, gapMetres) {
+  game.bot.movementMode = 'airborne';
+  game.bot.groundedCometIndex = null;
+  game.bot.position = add(game.player.position, { x: game.player.bodyRadius + game.bot.bodyRadius + gapMetres, y: 0 });
+  game.bot.velocity = { x: 0, y: 0 };
 }
 
 test('holding fire shoots blaster shots at the aim point, one per cooldown', async () => {
-  const game = await newGame();
+  const game = await quietGame();
   const aimPoint = add(game.player.position, { x: 0, y: -10 });
   stepFor(game, { ...noControls, fireHeld: true, aimPoint }, game.settings.weapons.blaster.cooldownSeconds * 1.5);
   assert.equal(game.projectiles.length, 2);
   assert.ok(game.projectiles.every((projectile) => projectile.velocity.y < 0));
 });
 
-test('a blaster shot that hits the drone damages it and pushes it', async () => {
-  const game = await newGame();
-  parkDroneNextToPlayer(game, 1);
-  stepFor(game, { ...noControls, fireHeld: true, aimPoint: game.drone.position }, stepSeconds);
-  stepFor(game, noControls, 0.3);
-  assert.equal(game.drone.vitals.health, game.settings.rules.maxHealth - game.settings.weapons.blaster.damage);
-  assert.ok(game.drone.knockbackVelocity.x > 0);
+test('a blaster shot that hits the bot damages it and knocks it back', async () => {
+  const game = await quietGame();
+  parkBotNextToPlayer(game, 1);
+  stepFor(game, { ...noControls, fireHeld: true, aimPoint: game.bot.position }, stepSeconds);
+  stepFor(game, noControls, 0.2);
+  assert.equal(game.bot.vitals.health, game.settings.rules.maxHealth - game.settings.weapons.blaster.damage);
+  assert.ok(game.bot.velocity.x > 0);
   assert.equal(game.projectiles.length, 0);
 });
 
 test('a character is never hit by its own shot', () => {
   const shooter = { id: 'player', bodyRadius: 0.4, position: { x: 5, y: 5 }, vitals: { state: 'alive' } };
-  const shot = createProjectile(shooter, { x: 1, y: 0 }, { projectileRadius: 0.1, projectileSpeed: 0, damage: 10, knockbackSpeed: 0, gravityScale: 0, projectileLifetimeSeconds: 1 });
+  const shot = createProjectile(shooter, { x: 1, y: 0 }, { projectileRadius: 0.1, projectileSpeed: 0, damage: 10, knockbackSpeed: 0, gravityScale: 0, projectileLifetimeSeconds: 1, passesThroughComets: false, eruption: null });
   shot.position = { ...shooter.position };
   const bounds = { minimumX: 0, minimumY: 0, maximumX: 10, maximumY: 10 };
   assert.deepEqual(updateProjectiles([shot], stepSeconds, [], [shooter], bounds), []);
 });
 
-test('shots are stopped by comets', async () => {
-  const game = await newGame();
+test('ordinary shots are stopped by comets', async () => {
+  const game = await quietGame();
   const cometUnderfoot = game.comets[game.player.groundedCometIndex];
   stepFor(game, { ...noControls, fireHeld: true, aimPoint: cometUnderfoot.centre }, stepSeconds);
   assert.ok(game.player.arsenal.cooldownSecondsRemaining > 0, 'the shot was fired');
   assert.equal(game.projectiles.length, 0);
 });
 
-test('shots curve under comet gravity', async () => {
-  const game = await newGame();
-  const shot = createProjectile(game.player, { x: 1, y: 0 }, game.settings.weapons.blaster);
-  const straightLineEnd = add(shot.position, scale(shot.velocity, 0.2));
-  updateProjectiles([shot], 0.2, game.comets, [], game.outerBounds);
-  assert.notDeepEqual(shot.position, straightLineEnd);
-});
-
-test('touching a crate gives the heavy cannon', async () => {
-  const game = await newGame();
-  game.crateSpawner.crates.push({ angleOnComet: 0, position: { ...game.player.position } });
+test('touching a crate gives the weapon inside, selected', async () => {
+  const game = await quietGame();
+  game.crateSpawner.crates.push({ floating: false, cometIndex: 0, angleOnComet: 0, position: { ...game.player.position }, weaponNames: ['drill'], secondsRemaining: null });
   stepFor(game, noControls, stepSeconds);
-  assert.equal(selectedWeapon(game.player.arsenal).weaponName, 'heavyCannon');
+  assert.equal(selectedWeapon(game.player.arsenal).weaponName, 'drill');
   assert.equal(game.crateSpawner.crates.length, 0);
 });
 
-test('crates appear on a comet surface after the spawn interval', async () => {
-  const game = await newGame();
+test('ordinary crates appear on comet surfaces, holding one of the crate weapons', async () => {
+  const game = await quietGame();
   stepFor(game, noControls, game.settings.crates.spawnIntervalSeconds + 0.1);
   assert.equal(game.crateSpawner.crates.length, 1);
+  const [crate] = game.crateSpawner.crates;
+  const comet = game.comets[crate.cometIndex];
+  assert.ok(Math.abs(distance(crate.position, comet.centre) - (comet.radius + game.settings.crates.size / 2)) < 1e-9);
+  assert.ok(game.settings.crates.weaponsInside.includes(crate.weaponNames[0]));
 });
 
-test('drifting off the map costs the player a life, then they respawn on a comet with only the blaster', async () => {
-  const game = await newGame();
-  game.player.arsenal.carriedWeapons.push({ weaponName: 'heavyCannon', ammoRemaining: 3 });
+test('drifting off the map costs a life, then the fighter respawns on a comet with only the blaster', async () => {
+  const game = await quietGame();
+  giveWeapon(game.player.arsenal, 'drill', game.settings.weapons);
   game.player.movementMode = 'airborne';
   game.player.position = { x: -100, y: -100 };
   stepFor(game, noControls, stepSeconds);
@@ -93,24 +95,141 @@ test('drifting off the map costs the player a life, then they respawn on a comet
   assert.equal(game.player.arsenal.carriedWeapons.length, 1);
 });
 
-test('destroying the drone on its last life ends the game as a win', async () => {
-  const game = await newGame();
-  parkDroneNextToPlayer(game, 1);
-  game.drone.vitals.livesRemaining = 1;
-  game.drone.vitals.health = game.settings.weapons.blaster.damage;
-  stepFor(game, { ...noControls, fireHeld: true, aimPoint: game.drone.position }, stepSeconds);
-  stepFor(game, noControls, 0.3);
-  assert.equal(game.outcome, 'targetDestroyed');
+test('fighters start on different comets', async () => {
+  for (let seed = 1; seed <= 20; seed += 1) {
+    const game = await quietGame({ seed });
+    assert.notEqual(game.player.groundedCometIndex, game.bot.groundedCometIndex);
+  }
 });
 
-test('the player running out of lives ends the game as a loss, and the game then stops changing', async () => {
-  const game = await newGame();
-  game.player.vitals.livesRemaining = 1;
-  game.player.position = { x: -100, y: -100 };
-  game.player.movementMode = 'airborne';
+test('the last fighter with lives left wins, and the game then stops changing', async () => {
+  const game = await quietGame();
+  game.bot.vitals.livesRemaining = 1;
+  game.bot.movementMode = 'airborne';
+  game.bot.position = { x: -100, y: -100 };
   stepFor(game, noControls, stepSeconds);
-  assert.equal(game.outcome, 'playerOutOfLives');
-  const droneBefore = { ...game.drone.position };
-  stepFor(game, noControls, 1);
-  assert.deepEqual(game.drone.position, droneBefore);
+  assert.deepEqual(game.outcome, { winnerId: 'player' });
+  const playerPositionBefore = { ...game.player.position };
+  stepFor(game, { ...noControls, runDirection: 1 }, 1);
+  assert.deepEqual(game.player.position, playerPositionBefore);
+});
+
+test('if both fighters lose their last life on the same step, it is a draw', async () => {
+  const game = await quietGame();
+  for (const fighter of game.fighters) {
+    fighter.vitals.livesRemaining = 1;
+    fighter.movementMode = 'airborne';
+    fighter.position = { x: -100, y: -100 };
+  }
+  stepFor(game, noControls, stepSeconds);
+  assert.deepEqual(game.outcome, { winnerId: null });
+});
+
+test('the drone fires a ring of shots in every direction, at a fixed interval', async () => {
+  const game = await quietGame({ withDrone: true });
+  const { drone: droneSettings } = game.settings;
+  stepFor(game, noControls, droneSettings.secondsBetweenVolleys - 0.05);
+  assert.equal(game.projectiles.filter((projectile) => projectile.ownerId === 'drone').length, 0);
+  // Step until the volley appears, so the shots haven't yet been bent by gravity.
+  for (let step = 0; step < 20 && !game.projectiles.some((projectile) => projectile.ownerId === 'drone'); step += 1) {
+    stepFor(game, noControls, stepSeconds);
+  }
+  const volley = game.projectiles.filter((projectile) => projectile.ownerId === 'drone');
+  assert.equal(volley.length, droneSettings.shotsPerVolley);
+  const angles = volley.map((projectile) => Math.atan2(projectile.velocity.y, projectile.velocity.x)).sort((first, second) => first - second);
+  const gap = (2 * Math.PI) / droneSettings.shotsPerVolley;
+  // Within a hair: each shot has already had one physics step of gravity.
+  for (let index = 1; index < angles.length; index += 1) assert.ok(Math.abs(angles[index] - angles[index - 1] - gap) < 0.01);
+});
+
+test('the drone never runs out of lives and does not count towards winning', async () => {
+  const game = await quietGame({ withDrone: true });
+  for (let death = 0; death < 10; death += 1) {
+    game.drone.vitals.health = 1;
+    game.drone.vitals.protectionSecondsRemaining = 0;
+    const shot = createProjectile(game.player, { x: 1, y: 0 }, game.settings.weapons.blaster);
+    shot.position = { ...game.drone.position };
+    game.projectiles.push(shot);
+    stepFor(game, noControls, stepSeconds);
+    assert.equal(game.drone.vitals.state, 'waitingToRespawn');
+    stepFor(game, noControls, game.settings.drone.respawnDelaySeconds + 0.1);
+    assert.equal(game.drone.vitals.state, 'alive');
+  }
+  assert.equal(game.outcome, null);
+});
+
+test('destroying the drone drops a floating loot crate (a bonus weapon plus the Barrage) that vanishes if left', async () => {
+  const game = await quietGame({ withDrone: true });
+  game.drone.vitals.health = 1;
+  const whereItDied = { ...game.drone.position };
+  const shot = createProjectile(game.player, { x: 1, y: 0 }, game.settings.weapons.blaster);
+  shot.position = { ...game.drone.position };
+  game.projectiles.push(shot);
+  stepFor(game, noControls, stepSeconds);
+  const loot = game.crateSpawner.crates.find((crate) => crate.floating);
+  assert.ok(loot);
+  // The drone moves a fraction during the step before the shot lands.
+  assert.ok(distance(loot.position, whereItDied) < 0.1);
+  assert.ok(game.settings.drone.lootBonusWeapons.includes(loot.weaponNames[0]));
+  assert.equal(loot.weaponNames[1], 'barrage');
+  stepFor(game, noControls, game.settings.drone.lootLifetimeSeconds + 0.1);
+  assert.ok(!game.crateSpawner.crates.includes(loot));
+});
+
+test('collecting loot gives the bonus weapon and the Barrage, with the Barrage selected', async () => {
+  const game = await quietGame();
+  game.crateSpawner.crates.push({ floating: true, cometIndex: null, angleOnComet: 0, position: { ...game.player.position }, weaponNames: ['volcanoBomb', 'barrage'], secondsRemaining: 20 });
+  stepFor(game, noControls, stepSeconds);
+  const carriedNames = game.player.arsenal.carriedWeapons.map((carried) => carried.weaponName);
+  assert.deepEqual(carriedNames, ['blaster', 'volcanoBomb', 'barrage']);
+  assert.equal(selectedWeapon(game.player.arsenal).weaponName, 'barrage');
+});
+
+test('a Barrage shot fires every other carried weapon at once, using only Barrage ammo', async () => {
+  const game = await quietGame();
+  const { weapons } = game.settings;
+  giveWeapon(game.player.arsenal, 'drill', weapons);
+  giveWeapon(game.player.arsenal, 'barrage', weapons);
+  const aimPoint = add(game.player.position, { x: 0, y: -5 });
+  stepFor(game, { ...noControls, fireHeld: true, aimPoint }, stepSeconds);
+  assert.equal(game.projectiles.length, 2, 'one blaster shot and one drill');
+  assert.ok(game.projectiles.some((projectile) => projectile.shape === 'drill'));
+  const drill = game.player.arsenal.carriedWeapons.find((carried) => carried.weaponName === 'drill');
+  assert.equal(drill.ammoRemaining, weapons.drill.ammoPerPickup);
+  assert.equal(selectedWeapon(game.player.arsenal).ammoRemaining, weapons.barrage.ammoPerPickup - 1);
+});
+
+test('the Barrage is dropped after its shots run out, leaving the other weapons untouched', async () => {
+  const game = await quietGame();
+  const { weapons } = game.settings;
+  giveWeapon(game.player.arsenal, 'heavyCannon', weapons);
+  giveWeapon(game.player.arsenal, 'barrage', weapons);
+  const aimPoint = add(game.player.position, { x: 0, y: -5 });
+  for (let shot = 0; shot < weapons.barrage.ammoPerPickup; shot += 1) {
+    stepFor(game, { ...noControls, fireHeld: true, aimPoint }, stepSeconds);
+    game.player.arsenal.cooldownSecondsRemaining = 0;
+  }
+  const carriedNames = game.player.arsenal.carriedWeapons.map((carried) => carried.weaponName);
+  assert.deepEqual(carriedNames, ['blaster', 'heavyCannon']);
+  assert.equal(game.player.arsenal.carriedWeapons[1].ammoRemaining, weapons.heavyCannon.ammoPerPickup);
+});
+
+test('mouse distance sets the speed of an adjustable-power weapon', async () => {
+  const game = await quietGame();
+  const { weapons, aiming } = game.settings;
+  giveWeapon(game.player.arsenal, 'volcanoBomb', weapons);
+  const halfPowerAim = add(game.player.position, { x: 0, y: -aiming.mouseDistanceForFullPower / 2 });
+  stepFor(game, { ...noControls, fireHeld: true, aimPoint: halfPowerAim }, stepSeconds);
+  const range = weapons.volcanoBomb.muzzleSpeedRange;
+  const speed = Math.hypot(game.projectiles[0].velocity.x, game.projectiles[0].velocity.y);
+  // One physics step of gravity has already changed the speed very slightly.
+  assert.ok(Math.abs(speed - (range.slowest + range.fastest) / 2) < 0.2);
+});
+
+test('shots curve under comet gravity', async () => {
+  const game = await quietGame();
+  const shot = createProjectile(game.player, { x: 1, y: 0 }, game.settings.weapons.blaster);
+  const straightLineEnd = add(shot.position, scale(shot.velocity, 0.2));
+  updateProjectiles([shot], 0.2, game.comets, [], game.outerBounds);
+  assert.notDeepEqual(shot.position, straightLineEnd);
 });

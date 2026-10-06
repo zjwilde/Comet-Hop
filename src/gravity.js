@@ -16,17 +16,20 @@ export function createComets(cometLayout, surfaceGravity) {
 }
 
 // Acceleration at a point: the sum over comets of strength x (centre - point) / distance^3.
+// Inside a comet (only a drill gets there) the pull instead shrinks steadily to zero at the centre, as it would inside
+// a solid ball; this matches the outside formula exactly at the surface.
 export function gravityAt(point, comets) {
   let accelerationX = 0;
   let accelerationY = 0;
   for (const comet of comets) {
     const offsetX = comet.centre.x - point.x;
     const offsetY = comet.centre.y - point.y;
-    const distanceSquared = offsetX * offsetX + offsetY * offsetY;
-    if (distanceSquared === 0) continue;
-    const strengthOverDistanceCubed = comet.gravitationalStrength / (distanceSquared * Math.sqrt(distanceSquared));
-    accelerationX += offsetX * strengthOverDistanceCubed;
-    accelerationY += offsetY * strengthOverDistanceCubed;
+    const distanceFromCentre = Math.hypot(offsetX, offsetY);
+    if (distanceFromCentre === 0) continue;
+    // Using the radius in place of the distance when inside gives the steady shrink towards the centre.
+    const pullPerMetreOfOffset = comet.gravitationalStrength / Math.max(distanceFromCentre, comet.radius) ** 3;
+    accelerationX += offsetX * pullPerMetreOfOffset;
+    accelerationY += offsetY * pullPerMetreOfOffset;
   }
   return { x: accelerationX, y: accelerationY };
 }

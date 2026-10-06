@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createComets } from '../src/gravity.js';
-import { createPlayer, placeOnComet, updatePlayerMovement, launchIntoAir } from '../src/player.js';
+import { createFighter, placeOnComet, updateFighterMovement, launchIntoAir } from '../src/fighter.js';
 import { distance, length, dot } from '../src/vector.js';
 import { copyOfSettings } from './helpers.js';
 
@@ -14,14 +14,14 @@ const comets = createComets([smallComet, bigComet], settings.physics.cometSurfac
 const loneComet = createComets([smallComet], settings.physics.cometSurfaceGravity);
 
 function playerStandingOn(cometIndex, angle) {
-  const player = createPlayer('player', settings.player, settings.rules);
+  const player = createFighter('player', 'human', settings.fighter, settings.rules);
   placeOnComet(player, comets, cometIndex, angle);
   return player;
 }
 
 function runFor(player, controls, seconds) {
   for (let step = 0; step < Math.round(seconds / stepSeconds); step += 1) {
-    updatePlayerMovement(player, controls, stepSeconds, comets, settings.player);
+    updateFighterMovement(player, controls, stepSeconds, comets, settings.fighter);
   }
 }
 
@@ -31,7 +31,7 @@ test('running turns at run speed divided by comet radius, so a comet twice as bi
   const holdRight = { runDirection: 1, jumpRequested: false };
   runFor(onSmall, holdRight, 0.5);
   runFor(onBig, holdRight, 0.5);
-  const expectedSmallAngle = (settings.player.runSpeed / smallComet.radius) * 0.5;
+  const expectedSmallAngle = (settings.fighter.runSpeed / smallComet.radius) * 0.5;
   assert.ok(Math.abs(onSmall.angleOnComet - expectedSmallAngle) < 1e-9);
   assert.ok(Math.abs(onSmall.angleOnComet / onBig.angleOnComet - 2) < 1e-9);
 });
@@ -51,24 +51,24 @@ test('a grounded player stays exactly on the surface while running', () => {
 
 test('jumping leaves straight outward at launch speed, keeping the running speed sideways', () => {
   const player = playerStandingOn(0, -Math.PI / 2);
-  updatePlayerMovement(player, { runDirection: 1, jumpRequested: true }, stepSeconds, comets, settings.player);
+  updateFighterMovement(player, { runDirection: 1, jumpRequested: true }, stepSeconds, comets, settings.fighter);
   assert.equal(player.movementMode, 'airborne');
   const outward = { x: Math.cos(player.angleOnComet), y: Math.sin(player.angleOnComet) };
   const clockwise = { x: -outward.y, y: outward.x };
-  const expectedSidewaysSpeed = (settings.player.runSpeed / smallComet.radius) * (smallComet.radius + player.bodyRadius);
-  assert.ok(Math.abs(dot(player.velocity, outward) - settings.player.jumpLaunchSpeed) < 1e-9);
+  const expectedSidewaysSpeed = (settings.fighter.runSpeed / smallComet.radius) * (smallComet.radius + player.bodyRadius);
+  assert.ok(Math.abs(dot(player.velocity, outward) - settings.fighter.jumpLaunchSpeed) < 1e-9);
   assert.ok(Math.abs(dot(player.velocity, clockwise) - expectedSidewaysSpeed) < 1e-9);
 });
 
 test('a standing jump from a lone comet comes back down onto it at the same spot', () => {
-  const player = createPlayer('player', settings.player, settings.rules);
+  const player = createFighter('player', 'human', settings.fighter, settings.rules);
   placeOnComet(player, loneComet, 0, -Math.PI / 2);
   const startPosition = { ...player.position };
-  updatePlayerMovement(player, { runDirection: 0, jumpRequested: true }, stepSeconds, loneComet, settings.player);
-  updatePlayerMovement(player, { runDirection: 0, jumpRequested: false }, stepSeconds, loneComet, settings.player);
+  updateFighterMovement(player, { runDirection: 0, jumpRequested: true }, stepSeconds, loneComet, settings.fighter);
+  updateFighterMovement(player, { runDirection: 0, jumpRequested: false }, stepSeconds, loneComet, settings.fighter);
   assert.equal(player.movementMode, 'airborne', 'must not re-land on the step right after jumping');
   for (let step = 0; step < 10 / stepSeconds && player.movementMode === 'airborne'; step += 1) {
-    updatePlayerMovement(player, { runDirection: 0, jumpRequested: false }, stepSeconds, loneComet, settings.player);
+    updateFighterMovement(player, { runDirection: 0, jumpRequested: false }, stepSeconds, loneComet, settings.fighter);
   }
   assert.equal(player.movementMode, 'grounded');
   assert.ok(distance(player.position, startPosition) < 1e-6);

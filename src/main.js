@@ -13,7 +13,6 @@ const longestCatchUpSeconds = 0.25;
 
 let game = createGame(settings);
 let view = null;
-let lastAimPoint = { x: 0, y: 0 };
 
 function fitCanvasToWindow() {
   const pixelRatio = window.devicePixelRatio || 1;
@@ -34,12 +33,10 @@ function onFrame(frameTime) {
   previousFrameTime = frameTime;
   if (input.takeRestartRequest()) game = createGame(settings);
   while (unsimulatedSeconds >= stepSeconds) {
-    const controls = input.takeControls(view);
-    lastAimPoint = controls.aimPoint;
-    stepGame(game, controls, stepSeconds);
+    stepGame(game, { player: input.takeControls(view) }, stepSeconds);
     unsimulatedSeconds -= stepSeconds;
   }
-  drawGame(context, game, view, lastAimPoint);
+  drawGame(context, game, view);
   requestAnimationFrame(onFrame);
 }
 requestAnimationFrame(onFrame);

@@ -58,29 +58,47 @@ Game's existing "abilities as moves with limits" approach to player movement.
 - **Health, damage, death/respawn, and any win condition are not decided.** They depend entirely on the open question
   below — a pure movement/shooting prototype may not need them yet at all.
 
-## Decisions made with the user (2026-10-06)
+## Decisions made with the user
 
-- **Opponents:** start single-player against a target-practice drone (floats freely, ignores gravity, flies to random
-  waypoints). **Online multiplayer is the long-term goal** and where the game is meant to be most fun. Same-keyboard
+- **Opponents (2026-10-06):** single-player against a **bot that has every ability the player has** (same controls,
+  same rules), in a different colour, with a rudimentary AI. **Online multiplayer is the long-term goal.** Same-keyboard
   two-player is not planned: mouse aiming unfairly favours whoever has the mouse.
-- **Starting weapon:** never uses ammo, so nobody is ever unable to attack, but deliberately weak and generic (less
-  damage, range, knockback). Collectible weapons from crates are stronger and limited by ammo.
-- **Health, damage, respawning:** conventional. Lives are limited (a setting) and the same rules apply to every
-  character. Leaving the map (past a margin) costs a life, like falling off the stage.
+- **The drone stays** as a neutral hazard (maybe later a turret or guard in a level): it fires a ring of shots in every
+  direction at a fixed interval, and drops special loot when destroyed. It never runs out of lives and doesn't count
+  towards winning.
+- **Weapons:** variety is what makes the game fun; expect many more. The starting weapon never uses ammo (nobody is
+  ever unable to attack) but is weak and generic. Collected weapons are stronger and limited by ammo. Inspirations: the
+  Gravitee Wars drill, the "volcano bomb" found in most tank games.
+- **Curving shots:** a weapon whose shots visibly curve shows the aiming player an aim path, **limited** to the start of
+  the flight (length needs playtest tuning). For weapons that have a muzzle velocity, **mouse distance from the
+  fighter sets the power.**
+- **Special loot (placeholder):** the Barrage: 4 shots, each firing every weapon carried at once, using only the
+  Barrage's ammo. Comes with a random ammo-limited weapon so it's never weak.
+- **Health, damage, respawning:** conventional. Lives are limited (a setting) and the same for every fighter. Leaving
+  the map (past a margin) costs a life, like falling off the stage.
 
 ## What's built (prototype)
 
 Plain ES modules in `src/`, all tunable numbers in `src/settings.js`. `npm start` serves at http://localhost:8080/,
-`npm test` runs the tests. Running, jumping, gravity, landing; blaster (unlimited) and heavy cannon (from crates, 5
-shots); shots bend under gravity, stop at comets, never hit their shooter; health, lives, respawn with brief
-protection; the drone; HUD.
+`npm test` runs the tests. `window.cometHop.game` in the browser console exposes the live game for poking.
 
-Choices made while building, not yet confirmed by the user: shots bend under gravity (`gravityScale` per weapon);
-collected weapons are lost on death; respawn is on top of a random comet; all comets share one surface gravity.
+- Fighters (`fighter.js`): running, jumping, gravity, landing. Player and bot use the same code and controls.
+- Bot (`bot.js`): wanders, hops towards its target when it has no good shot, grabs crates on its own comet, aims by
+  simulating candidate shots and picking the closest, with random error.
+- Weapons: Blaster (unlimited, fixed speed), Heavy Cannon (fixed speed), Volcano Bomb (adjustable power, erupts into
+  fragments), Drill (adjustable power, bores through comets), Barrage (drone loot). Crates on comet surfaces hold one
+  crate weapon; the drone's floating loot crate holds a bonus weapon plus the Barrage.
+- The aim path uses the same physics step as real shots, and a test checks they match exactly.
+
+Choices made while building, not yet confirmed by the user: collected weapons are lost on death; respawn is on top of
+a random comet no other fighter stands on; all comets share one surface gravity; shots never hit their own shooter
+(including volcano fragments); a drill passes through comets unchanged (comets aren't damaged); the starting weapons
+curve only slightly, so they show no aim path.
 
 **Feel numbers:** gravity 9, jump 4.5, run 3 and the 7-comet layout were picked by simulating jumps, not by playing.
 `tests/layout-reachability.test.js` checks that a jump aimed within 15 degrees of a neighbouring comet lands on it,
-and that a standing jump never leaves the map. Change layout and jump numbers together and rerun it.
+and that a standing jump never leaves the map. Change layout and jump numbers together and rerun it. Every weapon and
+bot number is a first guess.
 
 ## Stack (recommended; matches the user's other two browser games)
 

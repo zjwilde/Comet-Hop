@@ -1,19 +1,36 @@
-// The target-practice drone: floats freely (ignores gravity), flies straight to a random waypoint on screen, then
-// picks another. Waypoints are chosen so the drone neither sits inside a comet nor flies through one on the way.
-import { add, subtract, scale, length, normalize, distance, distanceFromPointToSegment } from './vector.js';
+// The drone: floats freely (ignores gravity), flies straight to a random waypoint on screen, then picks another, and
+// every few seconds fires a ring of shots in all directions. Waypoints are chosen so the drone neither sits inside a
+// comet nor flies through one on the way.
+import { add, subtract, scale, length, normalize, distance, distanceFromPointToSegment, directionFromAngle } from './vector.js';
 import { createVitals } from './vitals.js';
 
+// rules: the health, lives and respawn rules this drone follows.
 export function createDrone(id, droneSettings, rules) {
   return {
     id,
     kind: 'drone',
+    rules,
     bodyRadius: droneSettings.bodyRadius,
     position: { x: 0, y: 0 },
     velocity: { x: 0, y: 0 },
     waypoint: { x: 0, y: 0 },
     knockbackVelocity: { x: 0, y: 0 },
     vitals: createVitals(rules),
+    secondsUntilVolley: droneSettings.secondsBetweenVolleys,
+    volleysFired: 0,
   };
+}
+
+// Counts down to the next volley. Returns the directions to fire in on this step (none if it isn't time yet).
+// Each volley is turned half a gap from the last, so standing in a gap doesn't stay safe.
+export function takeVolleyDirections(drone, stepSeconds, droneSettings) {
+  drone.secondsUntilVolley -= stepSeconds;
+  if (drone.secondsUntilVolley > 0) return [];
+  drone.secondsUntilVolley = droneSettings.secondsBetweenVolleys;
+  drone.volleysFired += 1;
+  const gapRadians = (2 * Math.PI) / droneSettings.shotsPerVolley;
+  const turnRadians = (drone.volleysFired % 2) * (gapRadians / 2);
+  return Array.from({ length: droneSettings.shotsPerVolley }, (_, shotIndex) => directionFromAngle(turnRadians + shotIndex * gapRadians));
 }
 
 // A spot is free if the whole drone body, plus the clearance, stays outside every comet.
@@ -51,6 +68,7 @@ export function placeDroneAtRandomFreeSpot(drone, comets, world, droneSettings, 
   drone.position = randomFreeSpot(comets, world, droneSettings, random);
   drone.velocity = { x: 0, y: 0 };
   drone.knockbackVelocity = { x: 0, y: 0 };
+  drone.secondsUntilVolley = droneSettings.secondsBetweenVolleys;
   drone.waypoint = chooseWaypoint(drone.position, comets, world, droneSettings, random);
 }
 

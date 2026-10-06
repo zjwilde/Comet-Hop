@@ -1,49 +1,136 @@
-// Shots in flight: bent by comet gravity (scaled per weapon), stopped by comets, the world edge, or their lifetime.
-import { add, scale, distance, length } from './vector.js';
+// Shots in flight: bent by comet gravity (scaled per weapon), stopped by comets (unless they bore through), the world
+// edge, or their lifetime. Some burst into fragments where they hit.
+import { add, subtract, scale, distance, length, normalize, directionFromAngle } from './vector.js';
 import { gravityAt } from './gravity.js';
 import { isAlive } from './vitals.js';
 
+// Fixed-speed weapons ignore the mouse. For the rest, the mouse's distance from the fighter picks a speed in the
+// weapon's range: right on the fighter is the slowest, mouseDistanceForFullPower or further is the fastest.
+export function muzzleSpeedFor(shotDefinition, mouseDistance, aimingSettings) {
+  const range = shotDefinition.muzzleSpeedRange;
+  if (!range) return shotDefinition.projectileSpeed;
+  const power = Math.min(1, Math.max(0, mouseDistance / aimingSettings.mouseDistanceForFullPower));
+  return range.slowest + power * (range.fastest - range.slowest);
+}
+
+// The reverse of muzzleSpeedFor: how far from the fighter to aim to get a given speed (the bot aims this way).
+export function mouseDistanceForMuzzleSpeed(shotDefinition, muzzleSpeed, aimingSettings) {
+  const range = shotDefinition.muzzleSpeedRange;
+  if (!range) return aimingSettings.mouseDistanceForFullPower;
+  const power = Math.min(1, Math.max(0, (muzzleSpeed - range.slowest) / (range.fastest - range.slowest)));
+  return power * aimingSettings.mouseDistanceForFullPower;
+}
+
 // Starts just outside the shooter's body, so the shot never begins inside the shooter.
-export function createProjectile(owner, aimDirection, weaponDefinition) {
-  const spawnDistance = owner.bodyRadius + weaponDefinition.projectileRadius;
+export function createProjectile(shooter, aimDirection, shotDefinition, muzzleSpeed = shotDefinition.projectileSpeed) {
   return {
-    ownerId: owner.id,
-    position: add(owner.position, scale(aimDirection, spawnDistance)),
-    velocity: scale(aimDirection, weaponDefinition.projectileSpeed),
-    radius: weaponDefinition.projectileRadius,
-    damage: weaponDefinition.damage,
-    knockbackSpeed: weaponDefinition.knockbackSpeed,
-    gravityScale: weaponDefinition.gravityScale,
-    secondsRemaining: weaponDefinition.projectileLifetimeSeconds,
-    colour: weaponDefinition.projectileColour,
+    ownerId: shooter.id,
+    // Who this shot can never hit: always its shooter.
+    cannotHitIds: [shooter.id],
+    position: add(shooter.position, scale(aimDirection, shooter.bodyRadius + shotDefinition.projectileRadius)),
+    velocity: scale(aimDirection, muzzleSpeed),
+    radius: shotDefinition.projectileRadius,
+    damage: shotDefinition.damage,
+    knockbackSpeed: shotDefinition.knockbackSpeed,
+    gravityScale: shotDefinition.gravityScale,
+    secondsRemaining: shotDefinition.projectileLifetimeSeconds,
+    colour: shotDefinition.projectileColour,
+    shape: shotDefinition.projectileShape,
+    passesThroughComets: shotDefinition.passesThroughComets,
+    eruption: shotDefinition.eruption,
   };
 }
 
-// Moves every projectile one step and removes finished ones (in place). Returns the hits as [{ projectile, target }].
-// A projectile never hits the character who fired it.
+function moveProjectile(projectile, stepSeconds, comets) {
+  const gravity = gravityAt(projectile.position, comets);
+  projectile.velocity = add(projectile.velocity, scale(gravity, projectile.gravityScale * stepSeconds));
+  projectile.position = add(projectile.position, scale(projectile.velocity, stepSeconds));
+  projectile.secondsRemaining -= stepSeconds;
+}
+
+// The comet a shot has hit, or undefined. Shots that bore through comets never hit one.
+function cometHitBy(projectile, comets) {
+  if (projectile.passesThroughComets) return undefined;
+  return comets.find((comet) => distance(comet.centre, projectile.position) <= comet.radius + projectile.radius);
+}
+
+// The fragments a bursting shot throws out: an even fan centred on upDirection, with varied speeds.
+function eruptionFragments(shell, burstPoint, upDirection, alsoCannotHitId) {
+  const eruption = shell.eruption;
+  const centreAngle = Math.atan2(upDirection.y, upDirection.x);
+  const spreadRadians = (eruption.spreadDegrees * Math.PI) / 180;
+  const fragments = [];
+  for (let fragmentIndex = 0; fragmentIndex < eruption.fragmentCount; fragmentIndex += 1) {
+    const fractionAcrossFan = eruption.fragmentCount === 1 ? 0.5 : fragmentIndex / (eruption.fragmentCount - 1);
+    const direction = directionFromAngle(centreAngle + (fractionAcrossFan - 0.5) * spreadRadians);
+    // Spread the speeds over the range in a scattered but repeatable order (steps of the golden ratio).
+    const speedFraction = (fragmentIndex * 0.618034) % 1;
+    const speed = eruption.slowestFragmentSpeed + speedFraction * (eruption.fastestFragmentSpeed - eruption.slowestFragmentSpeed);
+    fragments.push({
+      ownerId: shell.ownerId,
+      cannotHitIds: alsoCannotHitId ? [...shell.cannotHitIds, alsoCannotHitId] : [...shell.cannotHitIds],
+      position: { ...burstPoint },
+      velocity: scale(direction, speed),
+      radius: eruption.fragmentRadius,
+      damage: eruption.fragmentDamage,
+      knockbackSpeed: eruption.fragmentKnockbackSpeed,
+      gravityScale: shell.gravityScale,
+      secondsRemaining: eruption.fragmentLifetimeSeconds,
+      colour: eruption.fragmentColour,
+      shape: 'ball',
+      passesThroughComets: false,
+      eruption: null,
+    });
+  }
+  return fragments;
+}
+
+// Moves every projectile one step and removes finished ones (in place), adding any fragments from bursts.
+// Returns the hits as [{ projectile, target }].
 export function updateProjectiles(projectiles, stepSeconds, comets, characters, worldBounds) {
   const hits = [];
-  const survivors = [];
+  const stillFlying = [];
+  const newFragments = [];
   for (const projectile of projectiles) {
-    const gravity = gravityAt(projectile.position, comets);
-    projectile.velocity = add(projectile.velocity, scale(gravity, projectile.gravityScale * stepSeconds));
-    projectile.position = add(projectile.position, scale(projectile.velocity, stepSeconds));
-    projectile.secondsRemaining -= stepSeconds;
+    moveProjectile(projectile, stepSeconds, comets);
 
-    const target = characters.find((character) => character.id !== projectile.ownerId
+    const target = characters.find((character) => !projectile.cannotHitIds.includes(character.id)
       && isAlive(character.vitals)
       && distance(character.position, projectile.position) <= character.bodyRadius + projectile.radius);
     if (target) {
       hits.push({ projectile, target });
+      // Fragments fly back the way the shell came, and don't hit the target the shell already hit.
+      if (projectile.eruption) newFragments.push(...eruptionFragments(projectile, projectile.position, scale(normalize(projectile.velocity), -1), target.id));
       continue;
     }
-    const hitComet = comets.some((comet) => distance(comet.centre, projectile.position) <= comet.radius + projectile.radius);
-    if (hitComet || projectile.secondsRemaining <= 0 || !isInsideBounds(projectile.position, worldBounds)) continue;
-    survivors.push(projectile);
+    const comet = cometHitBy(projectile, comets);
+    if (comet) {
+      if (projectile.eruption) {
+        const upFromSurface = normalize(subtract(projectile.position, comet.centre));
+        const burstPoint = add(comet.centre, scale(upFromSurface, comet.radius + projectile.eruption.fragmentRadius + 0.02));
+        newFragments.push(...eruptionFragments(projectile, burstPoint, upFromSurface, null));
+      }
+      continue;
+    }
+    if (projectile.secondsRemaining <= 0 || !isInsideBounds(projectile.position, worldBounds)) continue;
+    stillFlying.push(projectile);
   }
   projectiles.length = 0;
-  projectiles.push(...survivors);
+  projectiles.push(...stillFlying, ...newFragments);
   return hits;
+}
+
+// Where a shot would go if fired now, ignoring characters: the list of points it passes through, ending where it would
+// hit a comet, leave the world, run out of lifetime, or after the given number of seconds.
+export function predictFlightPath(shooter, aimDirection, muzzleSpeed, shotDefinition, comets, worldBounds, seconds, stepSeconds) {
+  const projectile = createProjectile(shooter, aimDirection, shotDefinition, muzzleSpeed);
+  const points = [{ ...projectile.position }];
+  for (let elapsed = 0; elapsed < seconds && projectile.secondsRemaining > 0; elapsed += stepSeconds) {
+    moveProjectile(projectile, stepSeconds, comets);
+    points.push({ ...projectile.position });
+    if (cometHitBy(projectile, comets) || !isInsideBounds(projectile.position, worldBounds)) break;
+  }
+  return points;
 }
 
 export function isInsideBounds(point, worldBounds) {
@@ -51,7 +138,7 @@ export function isInsideBounds(point, worldBounds) {
     && point.y >= worldBounds.minimumY && point.y <= worldBounds.maximumY;
 }
 
-// Direction of travel times the weapon's knockback speed.
+// Direction of travel times the shot's knockback speed.
 export function knockbackVelocityOf(projectile) {
   const speed = length(projectile.velocity);
   return speed === 0 ? { x: 0, y: 0 } : scale(projectile.velocity, projectile.knockbackSpeed / speed);

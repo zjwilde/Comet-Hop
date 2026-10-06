@@ -27,3 +27,10 @@ test('gravity at a comet centre is skipped rather than dividing by zero', () => 
   const pull = gravityAt({ x: 10, y: 10 }, singleComet);
   assert.deepEqual(pull, { x: 0, y: 0 });
 });
+
+test('inside a comet the pull shrinks steadily towards the centre, matching the outside pull at the surface', () => {
+  const pullHalfwayIn = length(gravityAt({ x: 11, y: 10 }, singleComet));
+  const pullAtSurface = length(gravityAt({ x: 12, y: 10 }, singleComet));
+  assert.ok(Math.abs(pullAtSurface - 9) < 1e-12);
+  assert.ok(Math.abs(pullHalfwayIn - 4.5) < 1e-12);
+});

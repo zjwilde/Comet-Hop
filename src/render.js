@@ -1,8 +1,9 @@
 // Drawing with Canvas 2D. The whole world is always on screen, scaled to fit the window; world units are metres.
-import { selectedWeapon } from './weapons.js';
+import { selectedWeapon, weaponsThatFire } from './weapons.js';
 import { isAlive } from './vitals.js';
-import { subtract, normalize, directionFromAngle } from './vector.js';
+import { subtract, normalize, length, directionFromAngle } from './vector.js';
 import { gravityAt } from './gravity.js';
+import { predictFlightPath, muzzleSpeedFor } from './projectiles.js';
 
 const colours = {
   space: '#060914',
@@ -11,19 +12,24 @@ const colours = {
   cometInner: '#b9c4d6',
   cometOuter: '#6f7c94',
   crater: 'rgba(40, 48, 66, 0.35)',
-  suit: '#eef3fb',
-  suitShade: '#aab6c8',
-  visor: '#5ad1ff',
   drone: '#ff6b4a',
   droneDark: '#7a2416',
   waypointLine: 'rgba(255, 107, 74, 0.25)',
   crate: '#b07a3c',
   crateEdge: '#5e3c17',
+  lootCrate: '#ffd24a',
+  lootCrateEdge: '#8a6a10',
   healthFull: '#5be37d',
   healthLow: '#ff5a5a',
   barBackground: 'rgba(255, 255, 255, 0.15)',
   text: '#e6ecff',
   dimText: 'rgba(230, 236, 255, 0.55)',
+};
+
+// Each fighter's look, by fighter id.
+const fighterColours = {
+  player: { suit: '#eef3fb', suitShade: '#aab6c8', visor: '#5ad1ff', label: 'YOU' },
+  bot: { suit: '#93e3a0', suitShade: '#4f9e5b', visor: '#ff5ad1', label: 'BOT' },
 };
 
 // pixelsPerMetre and the offset that centres the world in the canvas.
@@ -53,7 +59,7 @@ function starsFor(world) {
   return stars;
 }
 
-export function drawGame(context, game, view, aimPoint) {
+export function drawGame(context, game, view) {
   const { world } = game.settings;
   context.fillStyle = colours.space;
   context.fillRect(0, 0, view.canvasWidth, view.canvasHeight);
@@ -73,8 +79,11 @@ export function drawGame(context, game, view, aimPoint) {
 
   game.comets.forEach((comet, cometIndex) => drawComet(context, comet, cometIndex));
   for (const crate of game.crateSpawner.crates) drawCrate(context, crate, game.settings.crates.size);
-  if (isAlive(game.drone.vitals)) drawDrone(context, game.drone, game.settings.rules);
-  if (isAlive(game.player.vitals)) drawPlayer(context, game.player, game.comets, aimPoint);
+  if (game.drone && isAlive(game.drone.vitals)) drawDrone(context, game.drone);
+  if (isAlive(game.player.vitals) && !game.outcome) drawAimPaths(context, game, game.player);
+  for (const fighter of game.fighters) {
+    if (isAlive(fighter.vitals)) drawFighter(context, fighter, game.comets);
+  }
   for (const projectile of game.projectiles) drawProjectile(context, projectile);
   context.restore();
 
@@ -106,8 +115,14 @@ function drawCrate(context, crate, size) {
   context.save();
   context.translate(crate.position.x, crate.position.y);
   context.rotate(crate.angleOnComet + Math.PI / 2);
-  context.fillStyle = colours.crate;
-  context.strokeStyle = colours.crateEdge;
+  context.fillStyle = crate.floating ? colours.lootCrate : colours.crate;
+  context.strokeStyle = crate.floating ? colours.lootCrateEdge : colours.crateEdge;
+  if (crate.floating) {
+    context.shadowColor = colours.lootCrate;
+    context.shadowBlur = 18;
+    // Blinks during its last few seconds.
+    if (crate.secondsRemaining < 4 && Math.floor(crate.secondsRemaining * 4) % 2 === 0) context.globalAlpha = 0.4;
+  }
   context.lineWidth = 0.06;
   context.fillRect(-size / 2, -size / 2, size, size);
   context.strokeRect(-size / 2, -size / 2, size, size);
@@ -124,18 +139,44 @@ function isFlickering(vitals) {
   return vitals.protectionSecondsRemaining > 0 && Math.floor(vitals.protectionSecondsRemaining * 10) % 2 === 0;
 }
 
-function drawPlayer(context, player, comets, aimPoint) {
+// The predicted path of each curving shot the player would fire, for the first aimPathPreviewSeconds of flight. Uses the
+// game's own physics step, so the path drawn is exactly the path flown.
+function drawAimPaths(context, game, fighter) {
+  const { weapons, aiming } = game.settings;
+  const aimOffset = subtract(fighter.aimPoint, fighter.position);
+  if (length(aimOffset) === 0) return;
+  for (const weaponName of weaponsThatFire(fighter.arsenal, weapons)) {
+    const weaponDefinition = weapons[weaponName];
+    if (!weaponDefinition.showsAimPath) continue;
+    const muzzleSpeed = muzzleSpeedFor(weaponDefinition, length(aimOffset), aiming);
+    const path = predictFlightPath(fighter, normalize(aimOffset), muzzleSpeed, weaponDefinition, game.comets, game.outerBounds, aiming.aimPathPreviewSeconds, 1 / game.settings.physics.stepsPerSecond);
+    context.fillStyle = weaponDefinition.projectileColour;
+    path.forEach((point, pointIndex) => {
+      if (pointIndex % 3 !== 0) return;
+      // Dots fade out along the path.
+      context.globalAlpha = 0.8 * (1 - pointIndex / path.length);
+      context.beginPath();
+      context.arc(point.x, point.y, 0.06, 0, 2 * Math.PI);
+      context.fill();
+    });
+  }
+  context.globalAlpha = 1;
+}
+
+function drawFighter(context, fighter, comets) {
+  const look = fighterColours[fighter.id];
   // "Up" for the astronaut: away from the comet stood on, or away from the overall pull while flying.
-  const pull = gravityAt(player.position, comets);
-  const upDirection = player.movementMode === 'grounded' ? directionFromAngle(player.angleOnComet) : normalize({ x: -pull.x, y: -pull.y });
-  const aimDirection = normalize(subtract(aimPoint, player.position));
-  const radius = player.bodyRadius;
+  const pull = gravityAt(fighter.position, comets);
+  const upDirection = fighter.movementMode === 'grounded' ? directionFromAngle(fighter.angleOnComet) : normalize({ x: -pull.x, y: -pull.y });
+  const aimOffset = subtract(fighter.aimPoint, fighter.position);
+  const aimDirection = length(aimOffset) > 0 ? normalize(aimOffset) : upDirection;
+  const radius = fighter.bodyRadius;
 
   context.save();
-  context.globalAlpha = isFlickering(player.vitals) ? 0.35 : 1;
-  context.translate(player.position.x, player.position.y);
+  context.globalAlpha = isFlickering(fighter.vitals) ? 0.35 : 1;
+  context.translate(fighter.position.x, fighter.position.y);
   // Gun: a short stub pointing at the mouse.
-  context.strokeStyle = colours.suitShade;
+  context.strokeStyle = look.suitShade;
   context.lineWidth = radius * 0.35;
   context.beginPath();
   context.moveTo(0, 0);
@@ -143,10 +184,10 @@ function drawPlayer(context, player, comets, aimPoint) {
   context.stroke();
   // Boots on the "down" side.
   context.rotate(Math.atan2(upDirection.y, upDirection.x) + Math.PI / 2);
-  context.fillStyle = colours.suitShade;
+  context.fillStyle = look.suitShade;
   context.fillRect(-radius * 0.7, radius * 0.55, radius * 0.55, radius * 0.45);
   context.fillRect(radius * 0.15, radius * 0.55, radius * 0.55, radius * 0.45);
-  context.fillStyle = colours.suit;
+  context.fillStyle = look.suit;
   context.beginPath();
   context.arc(0, 0, radius, 0, 2 * Math.PI);
   context.fill();
@@ -154,16 +195,16 @@ function drawPlayer(context, player, comets, aimPoint) {
 
   // Visor looks towards the aim.
   context.save();
-  context.globalAlpha = isFlickering(player.vitals) ? 0.35 : 1;
-  context.fillStyle = colours.visor;
+  context.globalAlpha = isFlickering(fighter.vitals) ? 0.35 : 1;
+  context.fillStyle = look.visor;
   context.beginPath();
-  context.ellipse(player.position.x + aimDirection.x * radius * 0.35, player.position.y + aimDirection.y * radius * 0.35,
+  context.ellipse(fighter.position.x + aimDirection.x * radius * 0.35, fighter.position.y + aimDirection.y * radius * 0.35,
     radius * 0.5, radius * 0.38, Math.atan2(aimDirection.y, aimDirection.x), 0, 2 * Math.PI);
   context.fill();
   context.restore();
 }
 
-function drawDrone(context, drone, rules) {
+function drawDrone(context, drone) {
   const { x, y } = drone.position;
   const radius = drone.bodyRadius;
   context.strokeStyle = colours.waypointLine;
@@ -193,7 +234,7 @@ function drawDrone(context, drone, rules) {
   context.fill();
   context.restore();
 
-  drawHealthBar(context, x - radius, y - radius - 0.35, radius * 2, 0.14, drone.vitals.health / rules.maxHealth);
+  drawHealthBar(context, x - radius, y - radius - 0.35, radius * 2, 0.14, drone.vitals.health / drone.rules.maxHealth);
 }
 
 function drawProjectile(context, projectile) {
@@ -201,9 +242,22 @@ function drawProjectile(context, projectile) {
   context.fillStyle = projectile.colour;
   context.shadowColor = projectile.colour;
   context.shadowBlur = 12;
-  context.beginPath();
-  context.arc(projectile.position.x, projectile.position.y, projectile.radius, 0, 2 * Math.PI);
-  context.fill();
+  context.translate(projectile.position.x, projectile.position.y);
+  if (projectile.shape === 'drill') {
+    // A pointed bit, facing the way it's flying.
+    context.rotate(Math.atan2(projectile.velocity.y, projectile.velocity.x));
+    const size = projectile.radius;
+    context.beginPath();
+    context.moveTo(size * 2.2, 0);
+    context.lineTo(-size * 1.4, -size);
+    context.lineTo(-size * 1.4, size);
+    context.closePath();
+    context.fill();
+  } else {
+    context.beginPath();
+    context.arc(0, 0, projectile.radius, 0, 2 * Math.PI);
+    context.fill();
+  }
   context.restore();
 }
 
@@ -223,43 +277,56 @@ function drawLives(context, left, top, livesRemaining, startingLives, colour) {
   }
 }
 
-function drawHud(context, game, view) {
-  const { rules, weapons } = game.settings;
-  const { player, drone } = game;
-  context.font = '15px system-ui, sans-serif';
-  context.textBaseline = 'top';
-
-  // Player, top left.
+// Name, lives, health, selected weapon with ammo and cooldown, and (for the human) the current shot power.
+function drawFighterPanel(context, game, fighter, left) {
+  const { weapons, aiming } = game.settings;
+  const look = fighterColours[fighter.id];
+  const panelWidth = 180;
   context.textAlign = 'left';
+  context.textBaseline = 'top';
+  context.font = '15px system-ui, sans-serif';
   context.fillStyle = colours.text;
-  context.fillText('YOU', 16, 14);
-  drawLives(context, 56, 14, player.vitals.livesRemaining, rules.startingLives, colours.visor);
-  drawHealthBar(context, 16, 38, 180, 10, player.vitals.health / rules.maxHealth);
-  const carried = selectedWeapon(player.arsenal);
+  context.fillText(look.label, left, 14);
+  drawLives(context, left + 40, 14, fighter.vitals.livesRemaining, fighter.rules.startingLives, look.visor);
+  drawHealthBar(context, left, 38, panelWidth, 10, fighter.vitals.health / fighter.rules.maxHealth);
+
+  const carried = selectedWeapon(fighter.arsenal);
   const weaponDefinition = weapons[carried.weaponName];
   const ammoText = carried.ammoRemaining === null ? '' : `  x${carried.ammoRemaining}`;
-  context.fillText(`${weaponDefinition.displayName}${ammoText}`, 16, 56);
-  const cooldownFraction = player.arsenal.cooldownSecondsRemaining / weaponDefinition.cooldownSeconds;
-  context.fillStyle = colours.barBackground;
-  context.fillRect(16, 76, 180, 4);
-  context.fillStyle = weaponDefinition.projectileColour;
-  context.fillRect(16, 76, 180 * (1 - Math.min(1, cooldownFraction)), 4);
-  if (player.arsenal.carriedWeapons.length > 1) {
-    context.fillStyle = colours.dimText;
-    context.fillText(`Tab: switch (${player.arsenal.carriedWeapons.length} carried)`, 16, 86);
-  }
-
-  // Drone, top right.
-  context.textAlign = 'right';
   context.fillStyle = colours.text;
-  context.fillText('TARGET', view.canvasWidth - 16, 14);
-  drawLives(context, view.canvasWidth - 16 - 70 - rules.startingLives * 18, 14, drone.vitals.livesRemaining, rules.startingLives, colours.drone);
-  drawHealthBar(context, view.canvasWidth - 196, 38, 180, 10, drone.vitals.health / rules.maxHealth);
+  context.fillText(`${weaponDefinition.displayName}${ammoText}`, left, 56);
+  const cooldownFraction = fighter.arsenal.cooldownSecondsRemaining / weaponDefinition.cooldownSeconds;
+  context.fillStyle = colours.barBackground;
+  context.fillRect(left, 76, panelWidth, 4);
+  context.fillStyle = weaponDefinition.projectileColour;
+  context.fillRect(left, 76, panelWidth * (1 - Math.min(1, cooldownFraction)), 4);
 
+  context.fillStyle = colours.dimText;
+  const notes = [];
+  if (fighter.controlledBy === 'human') {
+    const hasAdjustablePower = weaponsThatFire(fighter.arsenal, weapons).some((weaponName) => weapons[weaponName].muzzleSpeedRange);
+    const power = Math.min(1, length(subtract(fighter.aimPoint, fighter.position)) / aiming.mouseDistanceForFullPower);
+    if (hasAdjustablePower) notes.push(`Power ${Math.round(power * 100)}%`);
+    if (fighter.arsenal.carriedWeapons.length > 1) notes.push(`Tab: switch (${fighter.arsenal.carriedWeapons.length} carried)`);
+  }
+  context.fillText(notes.join('   '), left, 86);
+}
+
+function outcomeMessage(outcome) {
+  if (outcome.winnerId === 'player') return 'You win!';
+  if (outcome.winnerId === null) return 'Draw';
+  return 'The bot wins';
+}
+
+function drawHud(context, game, view) {
+  drawFighterPanel(context, game, game.player, 16);
+  drawFighterPanel(context, game, game.bot, view.canvasWidth - 196);
+
+  context.font = '15px system-ui, sans-serif';
   context.fillStyle = colours.dimText;
   context.textAlign = 'left';
   context.textBaseline = 'bottom';
-  context.fillText('Left/Right: run   Up: jump   Mouse: aim   Click: fire   Tab: switch weapon   R: restart', 16, view.canvasHeight - 12);
+  context.fillText('Left/Right: run   Up: jump   Mouse: aim (distance = power)   Click: fire   Tab: switch weapon   R: restart', 16, view.canvasHeight - 12);
 
   context.textAlign = 'center';
   context.textBaseline = 'middle';
@@ -270,12 +337,12 @@ function drawHud(context, game, view) {
     context.fillRect(0, centreY - 50, view.canvasWidth, 100);
     context.fillStyle = colours.text;
     context.font = 'bold 28px system-ui, sans-serif';
-    context.fillText(game.outcome === 'targetDestroyed' ? 'Target destroyed!' : 'Out of lives', centreX, centreY - 12);
+    context.fillText(outcomeMessage(game.outcome), centreX, centreY - 12);
     context.font = '16px system-ui, sans-serif';
     context.fillText('Press R to play again', centreX, centreY + 22);
-  } else if (player.vitals.state === 'waitingToRespawn') {
+  } else if (game.player.vitals.state === 'waitingToRespawn') {
     context.fillStyle = colours.text;
     context.font = 'bold 22px system-ui, sans-serif';
-    context.fillText(`Respawning in ${player.vitals.secondsUntilRespawn.toFixed(1)}`, centreX, centreY);
+    context.fillText(`Respawning in ${game.player.vitals.secondsUntilRespawn.toFixed(1)}`, centreX, centreY);
   }
 }

@@ -6,7 +6,7 @@ export const settings = {
   world: {
     widthMetres: 48,
     heightMetres: 27,
-    // A player who drifts this far past the screen edge loses a life (like falling off the stage).
+    // A fighter who drifts this far past the screen edge loses a life (like falling off the stage).
     outOfBoundsMarginMetres: 4,
   },
 
@@ -28,13 +28,14 @@ export const settings = {
     { centre: { x: 40, y: 11 }, radius: 2.0 },
   ],
 
-  player: {
+  // Movement shared by every fighter: the human player and the bot have exactly the same abilities.
+  fighter: {
     bodyRadius: 0.4,
     runSpeed: 3,
     jumpLaunchSpeed: 4.5,
   },
 
-  // Health, lives and respawning. The same rules apply to every character, the player and the target drone alike.
+  // Health, lives and respawning. The same rules apply to every fighter.
   rules: {
     maxHealth: 100,
     startingLives: 3,
@@ -43,7 +44,63 @@ export const settings = {
     respawnProtectionSeconds: 1.5,
   },
 
+  aiming: {
+    // For weapons whose power you choose: the mouse this far from your fighter, or further, means full power.
+    mouseDistanceForFullPower: 8,
+    // How much of a curving shot's predicted path is drawn while aiming. Needs playtest tuning.
+    aimPathPreviewSeconds: 0.8,
+  },
+
+  // The computer-controlled fighter. It plays by the same rules and controls as the human player.
+  bot: {
+    // How often it changes its mind about running and jumping: a random time between these two.
+    shortestDecisionSeconds: 0.6,
+    longestDecisionSeconds: 1.8,
+    chanceToJumpPerDecision: 0.3,
+    chanceToStandStillPerDecision: 0.25,
+    // When it has no good shot, how likely it is (per decision) to hop to a neighbouring comet closer to its target,
+    // and how big a gap between comet surfaces it treats as hoppable (matches tests/layout-reachability.test.js).
+    chanceToHopTowardsTargetPerDecision: 0.6,
+    longestHopGapMetres: 5.6,
+    // How often it re-plans its shot, and how wrong its aim can be.
+    aimReplanSeconds: 0.35,
+    aimErrorDegrees: 5,
+    muzzleSpeedErrorFraction: 0.08,
+    // It only fires when its planned shot passes at least this close to its target.
+    fireWhenShotPassesWithinMetres: 1.2,
+    // How hard it searches for a shot: directions and power levels tried, and how far ahead each is followed.
+    aimDirectionsToTry: 36,
+    muzzleSpeedsToTry: 5,
+    shotPredictionSeconds: 2.5,
+  },
+
+  // The floating drone: a neutral hazard. It shoots a ring of shots in every direction now and then, can be shot by
+  // anyone, and drops a special floating loot crate when destroyed. It never runs out of lives and doesn't count
+  // towards winning.
   drone: {
+    includeInMatch: true,
+    // Waits longer than a fighter before coming back, so its loot stays special.
+    respawnDelaySeconds: 12,
+    secondsBetweenVolleys: 3,
+    shotsPerVolley: 8,
+    // Its shots use the same fields as a weapon (see weapons below).
+    volleyShot: {
+      projectileColour: '#ff6b4a',
+      projectileShape: 'ball',
+      projectileSpeed: 6,
+      projectileLifetimeSeconds: 3,
+      projectileRadius: 0.12,
+      damage: 6,
+      knockbackSpeed: 1.5,
+      gravityScale: 1,
+      passesThroughComets: false,
+      eruption: null,
+    },
+    // The loot crate floats where the drone died and vanishes if not collected in time. It holds the special weapon
+    // plus one of the bonus weapons, chosen at random, so the special weapon always has something strong to fire.
+    lootSpecialWeapon: 'barrage',
+    lootBonusWeapons: ['heavyCannon', 'volcanoBomb', 'drill'],
+    lootLifetimeSeconds: 20,
     bodyRadius: 0.6,
     cruiseSpeed: 4,
     arrivalDistance: 0.2,
@@ -54,31 +111,39 @@ export const settings = {
   },
 
   crates: {
-    spawnIntervalSeconds: 8,
-    maximumCratesAtOnce: 1,
+    spawnIntervalSeconds: 7,
+    maximumCratesAtOnce: 2,
     size: 0.7,
-    weaponInside: 'heavyCannon',
+    // Each crate holds one of these, chosen at random.
+    weaponsInside: ['heavyCannon', 'volcanoBomb', 'drill'],
   },
 
+  // Each weapon either has a fixed projectileSpeed, or a muzzleSpeedRange whose speed is chosen by how far the mouse
+  // is from the fighter. gravityScale 1 means shots bend under comet gravity like a thrown object; 0 means straight.
+  // ammoPerPickup null means unlimited.
   weapons: {
-    // The starting weapon: never runs out, so a player can always attack, but weak and short-ranged.
+    // The starting weapon: never runs out, so a fighter can always attack, but weak and short-ranged.
     blaster: {
       displayName: 'Blaster',
       projectileColour: '#ffe066',
+      projectileShape: 'ball',
       cooldownSeconds: 0.3,
       projectileSpeed: 14,
       projectileLifetimeSeconds: 0.7,
       projectileRadius: 0.1,
       damage: 8,
       knockbackSpeed: 1,
-      // 1 means shots bend under comet gravity exactly as a thrown object would; 0 means they fly straight.
       gravityScale: 1,
       ammoPerPickup: null,
+      passesThroughComets: false,
+      showsAimPath: false,
+      eruption: null,
     },
-    // Found in crates: slower to fire, hits much harder and further, limited ammo.
+    // Fast, nearly straight, hits hard.
     heavyCannon: {
       displayName: 'Heavy Cannon',
       projectileColour: '#ff8c42',
+      projectileShape: 'ball',
       cooldownSeconds: 0.9,
       projectileSpeed: 17,
       projectileLifetimeSeconds: 2.5,
@@ -87,6 +152,63 @@ export const settings = {
       knockbackSpeed: 6,
       gravityScale: 1,
       ammoPerPickup: 5,
+      passesThroughComets: false,
+      showsAimPath: false,
+      eruption: null,
+    },
+    // A lobbed shell that bursts into a fan of burning fragments where it lands.
+    volcanoBomb: {
+      displayName: 'Volcano Bomb',
+      projectileColour: '#ff5a36',
+      projectileShape: 'ball',
+      cooldownSeconds: 1.2,
+      muzzleSpeedRange: { slowest: 3, fastest: 11 },
+      projectileLifetimeSeconds: 6,
+      projectileRadius: 0.22,
+      damage: 12,
+      knockbackSpeed: 3,
+      gravityScale: 1,
+      ammoPerPickup: 3,
+      passesThroughComets: false,
+      showsAimPath: true,
+      eruption: {
+        fragmentCount: 9,
+        // The fragments fan out across this angle, centred on straight up from the surface hit.
+        spreadDegrees: 110,
+        slowestFragmentSpeed: 3,
+        fastestFragmentSpeed: 6.5,
+        fragmentDamage: 7,
+        fragmentRadius: 0.09,
+        fragmentLifetimeSeconds: 4,
+        fragmentKnockbackSpeed: 1.5,
+        fragmentColour: '#ffb03a',
+      },
+    },
+    // Bores straight through comets, so you can hit someone on the far side of one.
+    drill: {
+      displayName: 'Drill',
+      projectileColour: '#c9d1e0',
+      projectileShape: 'drill',
+      cooldownSeconds: 1,
+      muzzleSpeedRange: { slowest: 4, fastest: 13 },
+      projectileLifetimeSeconds: 3.5,
+      projectileRadius: 0.14,
+      damage: 25,
+      knockbackSpeed: 4,
+      gravityScale: 1,
+      ammoPerPickup: 3,
+      passesThroughComets: true,
+      showsAimPath: true,
+      eruption: null,
+    },
+    // Special loot from the drone: each shot fires every other weapon carried at once, using only the Barrage's own
+    // ammo. It has no projectile of its own.
+    barrage: {
+      displayName: 'Barrage',
+      firesAllCarriedWeapons: true,
+      projectileColour: '#e9a8ff',
+      cooldownSeconds: 1.5,
+      ammoPerPickup: 4,
     },
   },
 };
