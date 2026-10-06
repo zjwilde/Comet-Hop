@@ -5,6 +5,7 @@ import { createGame, stepGame } from '../src/game.js';
 import { createProjectile, updateProjectiles } from '../src/projectiles.js';
 import { add, scale, distance } from '../src/vector.js';
 import { selectedWeapon, giveWeapon } from '../src/weapons.js';
+import { HumanController, IdleController } from '../src/controllers.js';
 import { copyOfSettings, createSeededRandom, noControls } from './helpers.js';
 
 const stepSeconds = 1 / 120;
@@ -13,13 +14,15 @@ const stepSeconds = 1 / 120;
 async function quietGame({ withDrone = false, seed = 1 } = {}) {
   const settings = await copyOfSettings();
   settings.drone.includeInMatch = withDrone;
-  return createGame(settings, createSeededRandom(seed));
+  const game = createGame(settings, createSeededRandom(seed));
+  game.bot.controller = new IdleController();
+  return game;
 }
 
+// Steps the game with the player holding the given controls throughout.
 function stepFor(game, playerControls, seconds) {
-  for (let step = 0; step < Math.round(seconds / stepSeconds); step += 1) {
-    stepGame(game, { player: playerControls, bot: noControls }, stepSeconds);
-  }
+  game.player.controller = new HumanController(() => playerControls);
+  for (let step = 0; step < Math.round(seconds / stepSeconds); step += 1) stepGame(game, stepSeconds);
 }
 
 // Moves the bot into open space just to the right of the player, so shots can be aimed at it.

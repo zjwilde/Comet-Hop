@@ -1,36 +1,66 @@
-// The drone: floats freely (ignores gravity), flies straight to a random waypoint on screen, then picks another, and
-// every few seconds fires a ring of shots in all directions. Waypoints are chosen so the drone neither sits inside a
-// comet nor flies through one on the way.
-import { add, subtract, scale, length, normalize, distance, distanceFromPointToSegment, directionFromAngle } from './vector.js';
-import { createVitals } from './vitals.js';
+// Drones: characters that float freely (ignoring gravity), flying straight to a random waypoint on screen and then
+// picking another. Waypoints are chosen so a drone neither sits inside a comet nor flies through one on the way.
+// Drone is the base for every kind of drone; each kind (see hazard-drone.js) adds what it does on top of flying.
+import { add, subtract, scale, length, normalize, distance, distanceFromPointToSegment } from './vector.js';
+import { Character } from './character.js';
 
-// rules: the health, lives and respawn rules this drone follows.
-export function createDrone(id, droneSettings, rules) {
-  return {
-    id,
-    kind: 'drone',
-    rules,
-    bodyRadius: droneSettings.bodyRadius,
-    position: { x: 0, y: 0 },
-    velocity: { x: 0, y: 0 },
-    waypoint: { x: 0, y: 0 },
-    knockbackVelocity: { x: 0, y: 0 },
-    vitals: createVitals(rules),
-    secondsUntilVolley: droneSettings.secondsBetweenVolleys,
-    volleysFired: 0,
-  };
-}
+export class Drone extends Character {
+  // droneSettings: this kind of drone's settings (size, speed, clearance, and anything its kind adds).
+  constructor(id, droneSettings, rules) {
+    super(id, droneSettings.bodyRadius, rules);
+    this.settings = droneSettings;
+    this.waypoint = { x: 0, y: 0 };
+    this.knockbackVelocity = { x: 0, y: 0 };
+  }
 
-// Counts down to the next volley. Returns the directions to fire in on this step (none if it isn't time yet).
-// Each volley is turned half a gap from the last, so standing in a gap doesn't stay safe.
-export function takeVolleyDirections(drone, stepSeconds, droneSettings) {
-  drone.secondsUntilVolley -= stepSeconds;
-  if (drone.secondsUntilVolley > 0) return [];
-  drone.secondsUntilVolley = droneSettings.secondsBetweenVolleys;
-  drone.volleysFired += 1;
-  const gapRadians = (2 * Math.PI) / droneSettings.shotsPerVolley;
-  const turnRadians = (drone.volleysFired % 2) * (gapRadians / 2);
-  return Array.from({ length: droneSettings.shotsPerVolley }, (_, shotIndex) => directionFromAngle(turnRadians + shotIndex * gapRadians));
+  update(game, stepSeconds) {
+    this.fly(stepSeconds, game.comets, game.settings.world, game.random);
+  }
+
+  fly(stepSeconds, comets, world, random) {
+    const toWaypoint = subtract(this.waypoint, this.position);
+    let steeringVelocity = { x: 0, y: 0 };
+    if (length(toWaypoint) <= Math.max(this.settings.arrivalDistance, this.settings.cruiseSpeed * stepSeconds)) {
+      this.position = { ...this.waypoint };
+      this.waypoint = chooseWaypoint(this.position, comets, world, this.settings, random);
+    } else {
+      steeringVelocity = scale(normalize(toWaypoint), this.settings.cruiseSpeed);
+    }
+
+    this.knockbackVelocity = scale(this.knockbackVelocity, Math.exp(-this.settings.knockbackFadePerSecond * stepSeconds));
+    this.velocity = add(steeringVelocity, this.knockbackVelocity);
+    this.position = add(this.position, scale(this.velocity, stepSeconds));
+
+    // Knockback can shove the drone into a comet or off screen: push it back out, and re-plan if its path is now blocked.
+    for (const comet of comets) {
+      const offsetFromCentre = subtract(this.position, comet.centre);
+      const minimumDistance = comet.radius + this.bodyRadius;
+      if (length(offsetFromCentre) < minimumDistance) {
+        this.position = add(comet.centre, scale(normalize(offsetFromCentre), minimumDistance));
+      }
+    }
+    this.position.x = Math.min(world.widthMetres - this.bodyRadius, Math.max(this.bodyRadius, this.position.x));
+    this.position.y = Math.min(world.heightMetres - this.bodyRadius, Math.max(this.bodyRadius, this.position.y));
+    if (!isPathClear(this.position, this.waypoint, comets, this.settings)) {
+      this.waypoint = chooseWaypoint(this.position, comets, world, this.settings, random);
+    }
+  }
+
+  // Knockback adds a push that fades out over time.
+  receiveKnockback(knockbackVelocity) {
+    this.knockbackVelocity = add(this.knockbackVelocity, knockbackVelocity);
+  }
+
+  respawn(game) {
+    this.placeAtRandomFreeSpot(game.comets, game.settings.world, game.random);
+  }
+
+  placeAtRandomFreeSpot(comets, world, random) {
+    this.position = randomFreeSpot(comets, world, this.settings, random);
+    this.velocity = { x: 0, y: 0 };
+    this.knockbackVelocity = { x: 0, y: 0 };
+    this.waypoint = chooseWaypoint(this.position, comets, world, this.settings, random);
+  }
 }
 
 // A spot is free if the whole drone body, plus the clearance, stays outside every comet.
@@ -62,41 +92,4 @@ export function randomFreeSpot(comets, world, droneSettings, random, isAcceptabl
 export function chooseWaypoint(fromPoint, comets, world, droneSettings, random) {
   const waypoint = randomFreeSpot(comets, world, droneSettings, random, (candidate) => isPathClear(fromPoint, candidate, comets, droneSettings));
   return waypoint ?? { ...fromPoint };
-}
-
-export function placeDroneAtRandomFreeSpot(drone, comets, world, droneSettings, random) {
-  drone.position = randomFreeSpot(comets, world, droneSettings, random);
-  drone.velocity = { x: 0, y: 0 };
-  drone.knockbackVelocity = { x: 0, y: 0 };
-  drone.secondsUntilVolley = droneSettings.secondsBetweenVolleys;
-  drone.waypoint = chooseWaypoint(drone.position, comets, world, droneSettings, random);
-}
-
-export function updateDrone(drone, stepSeconds, comets, world, droneSettings, random) {
-  const toWaypoint = subtract(drone.waypoint, drone.position);
-  let steeringVelocity = { x: 0, y: 0 };
-  if (length(toWaypoint) <= Math.max(droneSettings.arrivalDistance, droneSettings.cruiseSpeed * stepSeconds)) {
-    drone.position = { ...drone.waypoint };
-    drone.waypoint = chooseWaypoint(drone.position, comets, world, droneSettings, random);
-  } else {
-    steeringVelocity = scale(normalize(toWaypoint), droneSettings.cruiseSpeed);
-  }
-
-  drone.knockbackVelocity = scale(drone.knockbackVelocity, Math.exp(-droneSettings.knockbackFadePerSecond * stepSeconds));
-  drone.velocity = add(steeringVelocity, drone.knockbackVelocity);
-  drone.position = add(drone.position, scale(drone.velocity, stepSeconds));
-
-  // Knockback can shove the drone into a comet or off screen: push it back out, and re-plan if its path is now blocked.
-  for (const comet of comets) {
-    const offsetFromCentre = subtract(drone.position, comet.centre);
-    const minimumDistance = comet.radius + drone.bodyRadius;
-    if (length(offsetFromCentre) < minimumDistance) {
-      drone.position = add(comet.centre, scale(normalize(offsetFromCentre), minimumDistance));
-    }
-  }
-  drone.position.x = Math.min(world.widthMetres - drone.bodyRadius, Math.max(drone.bodyRadius, drone.position.x));
-  drone.position.y = Math.min(world.heightMetres - drone.bodyRadius, Math.max(drone.bodyRadius, drone.position.y));
-  if (!isPathClear(drone.position, drone.waypoint, comets, droneSettings)) {
-    drone.waypoint = chooseWaypoint(drone.position, comets, world, droneSettings, random);
-  }
 }

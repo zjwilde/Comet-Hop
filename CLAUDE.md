@@ -82,9 +82,19 @@ Game's existing "abilities as moves with limits" approach to player movement.
 Plain ES modules in `src/`, all tunable numbers in `src/settings.js`. `npm start` serves at http://localhost:8080/,
 `npm test` runs the tests. `window.cometHop.game` in the browser console exposes the live game for poking.
 
-- Fighters (`fighter.js`): running, jumping, gravity, landing. Player and bot use the same code and controls.
-- Bot (`bot.js`): wanders, hops towards its target when it has no good shot, grabs crates on its own comet, aims by
-  simulating candidate shots and picking the closest, with random error.
+- **Class structure (decided with the user, 2026-10-06):** `Character` (`character.js`) is the base for everything
+  that can be shot: shared position, health, lives and how a hit lands; each subclass supplies `update`,
+  `receiveKnockback` and `respawn` (and optionally `onLostLife`).
+  - `Fighter` (`fighter.js`): running, jumping, gravity, landing, weapons, crates. **The player and the bot are both
+    Fighters with different controllers**, not different classes. A controller has `decideControls(game, fighter,
+    stepSeconds)`: `HumanController` and `IdleController` in `controllers.js`, `BotController` in `bot.js`. A remote
+    online player would be another controller.
+  - `Drone` (`drone.js`): free flight between waypoints. Each kind of drone subclasses it: `HazardDrone`
+    (`hazard-drone.js`) adds ring volleys and loot. Future turrets or guards go alongside it.
+- Bot (`BotController`): wanders, hops towards its target when it has no good shot, grabs crates on its own comet, aims
+  by simulating candidate shots and picking the closest, with random error.
+- Weapons are still plain settings data with behaviour flags (`passesThroughComets`, `eruption`,
+  `firesAllCarriedWeapons`); likely to become classes once there are many more.
 - Weapons: Blaster (unlimited, fixed speed), Heavy Cannon (fixed speed), Volcano Bomb (adjustable power, erupts into
   fragments), Drill (adjustable power, bores through comets), Barrage (drone loot). Crates on comet surfaces hold one
   crate weapon; the drone's floating loot crate holds a bonus weapon plus the Barrage.

@@ -4,7 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createComets } from '../src/gravity.js';
-import { createFighter, placeOnComet, updateFighterMovement } from '../src/fighter.js';
+import { Fighter } from '../src/fighter.js';
+import { IdleController } from '../src/controllers.js';
 import { distance } from '../src/vector.js';
 import { isInsideBounds } from '../src/projectiles.js';
 import { copyOfSettings } from './helpers.js';
@@ -23,11 +24,11 @@ const maximumHopSeconds = 3.5;
 
 // Jumps from an angle on a comet and reports where the player ends up.
 function simulateStandingJump(fromCometIndex, angle, maximumSeconds) {
-  const player = createFighter('player', 'human', settings.fighter, settings.rules);
-  placeOnComet(player, comets, fromCometIndex, angle);
-  updateFighterMovement(player, { runDirection: 0, jumpRequested: true }, stepSeconds, comets, settings.fighter);
+  const player = new Fighter('player', new IdleController(), settings.fighter, settings.rules);
+  player.placeOnComet(comets, fromCometIndex, angle);
+  player.updateMovement({ runDirection: 0, jumpRequested: true }, stepSeconds, comets, settings.fighter);
   for (let elapsed = 0; elapsed < maximumSeconds; elapsed += stepSeconds) {
-    updateFighterMovement(player, { runDirection: 0, jumpRequested: false }, stepSeconds, comets, settings.fighter);
+    player.updateMovement({ runDirection: 0, jumpRequested: false }, stepSeconds, comets, settings.fighter);
     if (player.movementMode === 'grounded') return { landedOn: player.groundedCometIndex, seconds: elapsed };
     if (!isInsideBounds(player.position, outerBounds)) return { leftTheMap: true };
   }

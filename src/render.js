@@ -303,7 +303,8 @@ function drawFighterPanel(context, game, fighter, left) {
 
   context.fillStyle = colours.dimText;
   const notes = [];
-  if (fighter.controlledBy === 'human') {
+  // Aiming aids are for the person at this screen.
+  if (fighter === game.player) {
     const hasAdjustablePower = weaponsThatFire(fighter.arsenal, weapons).some((weaponName) => weapons[weaponName].muzzleSpeedRange);
     const power = Math.min(1, length(subtract(fighter.aimPoint, fighter.position)) / aiming.mouseDistanceForFullPower);
     if (hasAdjustablePower) notes.push(`Power ${Math.round(power * 100)}%`);
