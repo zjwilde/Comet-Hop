@@ -36,6 +36,8 @@ export function createGame(gameSettings = defaultSettings, random = Math.random,
     projectiles: [],
     // Short-lived visual effects, such as blast flashes: { position, radius, colour, secondsRemaining, totalSeconds }.
     effects: [],
+    // Where main shots came down on the latest step (see updateProjectiles), for the bot to learn from its misses.
+    latestLandings: [],
     crateSpawner: createCrateSpawner(gameSettings.crates),
     // null while playing; { winnerId } once only one fighter (or none: winnerId null, a draw) has lives left.
     outcome: null,
@@ -54,9 +56,10 @@ export function stepGame(game, stepSeconds) {
     if (character.isAlive()) character.update(game, stepSeconds);
   }
 
-  const { hits, blasts } = updateProjectiles(game.projectiles, stepSeconds, game.comets, game.characters, game.outerBounds);
+  const { hits, blasts, landings } = updateProjectiles(game.projectiles, stepSeconds, game.comets, game.characters, game.outerBounds);
   for (const { projectile, target } of hits) target.takeHit(game, projectile.damage, knockbackVelocityOf(projectile));
   for (const blast of blasts) applyBlast(game, blast);
+  game.latestLandings = landings;
   for (const effect of game.effects) effect.secondsRemaining -= stepSeconds;
   game.effects = game.effects.filter((effect) => effect.secondsRemaining > 0);
 

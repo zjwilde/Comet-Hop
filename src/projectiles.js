@@ -31,6 +31,8 @@ export function createProjectile(shooter, aimDirection, shotDefinition, muzzleSp
     cannotHitIds: canHurtShooter ? [] : [shooter.id],
     hasClearedShooter: false,
     isFragment: false,
+    // Whether its speed was chosen by mouse distance (a curving, lobbed weapon).
+    adjustablePower: Boolean(shotDefinition.muzzleSpeedRange),
     position: add(shooter.position, scale(aimDirection, shooter.bodyRadius + shotDefinition.projectileRadius)),
     velocity: scale(aimDirection, muzzleSpeed),
     radius: shotDefinition.projectileRadius,
@@ -93,6 +95,7 @@ function eruptionFragments(shell, burstPoint, upDirection, alsoCannotHitId) {
       // Fragments start where the shell landed, not at the shooter, so (if allowed) they can hurt the shooter at once.
       hasClearedShooter: true,
       isFragment: true,
+      adjustablePower: false,
       position: { ...burstPoint },
       velocity: scale(direction, speed),
       radius: eruption.fragmentRadius,
@@ -112,10 +115,17 @@ function eruptionFragments(shell, burstPoint, upDirection, alsoCannotHitId) {
 }
 
 // Moves every projectile one step and removes finished ones (in place), adding any fragments from bursts.
-// Returns { hits: [{ projectile, target }], blasts: [{ position, cannotHitIds, ...detonation settings }] }.
+// Returns { hits: [{ projectile, target }], blasts: [{ position, cannotHitIds, ...detonation settings }],
+// landings: [{ ownerId, adjustablePower, position }] } where landings are the main shots (not fragments) that ended this
+// step by hitting a comet or a character, detonating, leaving the world, or running out of time; anyone watching can see
+// where those came down or were last seen.
 export function updateProjectiles(projectiles, stepSeconds, comets, characters, worldBounds) {
   const hits = [];
   const blasts = [];
+  const landings = [];
+  const noteLanding = (projectile, position) => {
+    if (!projectile.isFragment) landings.push({ ownerId: projectile.ownerId, adjustablePower: projectile.adjustablePower, position: { ...position } });
+  };
   const stillFlying = [];
   const newFragments = [];
   for (const projectile of projectiles) {
@@ -125,6 +135,7 @@ export function updateProjectiles(projectiles, stepSeconds, comets, characters, 
     const blastPoint = detonationPoint(projectile, comets);
     if (blastPoint) {
       blasts.push({ ...projectile.detonation, position: blastPoint, cannotHitIds: [...projectile.cannotHitIds] });
+      noteLanding(projectile, blastPoint);
       continue;
     }
     // A drill still underground (inside the comet it bored into, since it hasn't detonated) can't hit anyone outside.
@@ -139,12 +150,14 @@ export function updateProjectiles(projectiles, stepSeconds, comets, characters, 
       && distance(character.position, projectile.position) <= character.bodyRadius + projectile.radius);
     if (target) {
       hits.push({ projectile, target });
+      noteLanding(projectile, projectile.position);
       // Fragments fly back the way the shell came, and don't hit the target the shell already hit.
       if (projectile.eruption) newFragments.push(...eruptionFragments(projectile, projectile.position, scale(normalize(projectile.velocity), -1), target.id));
       continue;
     }
     const comet = cometHitBy(projectile, comets);
     if (comet) {
+      noteLanding(projectile, projectile.position);
       if (projectile.eruption) {
         const upFromSurface = normalize(subtract(projectile.position, comet.centre));
         const burstPoint = add(comet.centre, scale(upFromSurface, comet.radius + projectile.eruption.fragmentRadius + 0.02));
@@ -152,12 +165,16 @@ export function updateProjectiles(projectiles, stepSeconds, comets, characters, 
       }
       continue;
     }
-    if (projectile.secondsRemaining <= 0 || !isInsideBounds(projectile.position, worldBounds)) continue;
+    if (projectile.secondsRemaining <= 0 || !isInsideBounds(projectile.position, worldBounds)) {
+      // Shots that fly off or fizzle out count as coming down where they were last seen (an overshoot, say).
+      noteLanding(projectile, projectile.position);
+      continue;
+    }
     stillFlying.push(projectile);
   }
   projectiles.length = 0;
   projectiles.push(...stillFlying, ...newFragments);
-  return { hits, blasts };
+  return { hits, blasts, landings };
 }
 
 // How hard a blast hits a character: 1 at the centre, falling to 0 at the blast radius (measured to the nearest edge

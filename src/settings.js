@@ -62,20 +62,30 @@ export const settings = {
     longestDecisionSeconds: 1.8,
     chanceToJumpPerDecision: 0.3,
     chanceToStandStillPerDecision: 0.25,
-    // When it has no good shot, how likely it is (per decision) to hop to a neighbouring comet closer to its target,
-    // and how big a gap between comet surfaces it treats as hoppable (matches tests/layout-reachability.test.js).
-    chanceToHopTowardsTargetPerDecision: 0.6,
+    // When it can't shoot its target from where it is, it hops towards it; this is how big a gap between comet surfaces
+    // it treats as hoppable (matches tests/layout-reachability.test.js).
     longestHopGapMetres: 5.6,
-    // How often it re-plans its shot, and how wrong its aim can be.
-    aimReplanSeconds: 0.35,
-    aimErrorDegrees: 5,
-    muzzleSpeedErrorFraction: 0.08,
-    // It only fires when its planned shot passes at least this close to its target.
-    fireWhenShotPassesWithinMetres: 1.2,
-    // How hard it searches for a shot: directions and power levels tried, and how far ahead each is followed.
-    aimDirectionsToTry: 36,
-    muzzleSpeedsToTry: 5,
-    shotPredictionSeconds: 2.5,
+    // Aiming like a person. Raising these makes it easier to beat.
+    // It aims at where it saw its target this long ago.
+    reactionSeconds: 0.3,
+    // Random error in each shot's direction and power, re-rolled after every shot.
+    aimWobbleDegrees: 7,
+    powerWobbleFraction: 0.12,
+    // Curving weapons: a rough first guess, then learning from misses.
+    // How much it tips its first guess upward, away from the comet it stands on.
+    lobLift: 0.5,
+    // Its rule of thumb for how far a full-power lob carries.
+    metresPerFullPowerGuess: 14,
+    // How much of each miss it corrects for on its next shot.
+    correctionFraction: 0.6,
+    // If it or its target has moved this far since its last lob, it starts guessing afresh.
+    forgetCorrectionsAfterMovingMetres: 3,
+    // It watches each lob land before firing the next, but gives up watching after this long.
+    longestLobWatchSeconds: 8,
+    // Rules of thumb: no bursting or exploding weapons at a target closer than pointBlankMetres; run from bursting or
+    // exploding shots (anyone's) heading for it within dangerZoneMetres.
+    pointBlankMetres: 4,
+    dangerZoneMetres: 3,
   },
 
   // The floating drone: a neutral hazard. It shoots a ring of shots in every direction now and then, can be shot by

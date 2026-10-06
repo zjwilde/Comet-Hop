@@ -95,8 +95,13 @@ Plain ES modules in `src/`, all tunable numbers in `src/settings.js`. `npm start
     online player would be another controller.
   - `Drone` (`drone.js`): free flight between waypoints. Each kind of drone subclasses it: `HazardDrone`
     (`hazard-drone.js`) adds ring volleys and loot. Future turrets or guards go alongside it.
-- Bot (`BotController`): wanders, hops towards its target when it has no good shot, grabs crates on its own comet, aims
-  by simulating candidate shots and picking the closest, with random error.
+- Bot (`BotController`), **meant to play like a person (user's direction, 2026-10-06)**: it uses only what a player
+  can see plus rules of thumb, never a calculation of where shots will go (an earlier version that simulated shots was
+  superhuman and froze while its shots flew; both rejected). Straight weapons: aims where it saw the target a reaction
+  time ago, with wobble, fires in range with a clear line of sight. Lobs: rough first guess, then learns from where each
+  lob came down, one lob at a time like an artillery player. Rules of thumb: no explosives at point-blank range, never
+  lob into its own feet, runs from bursting shots coming down near it, chases a target it can't shoot. Difficulty
+  lives in a few plain settings (reaction, wobble, correction) under `bot` in `src/settings.js`.
 - Weapons are still plain settings data with behaviour flags (`passesThroughComets`, `eruption`,
   `firesAllCarriedWeapons`); likely to become classes once there are many more.
 - Weapons: Blaster (unlimited, fixed speed), Heavy Cannon (fixed speed), Volcano Bomb (adjustable power, erupts into
