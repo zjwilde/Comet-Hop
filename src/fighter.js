@@ -40,7 +40,7 @@ export class Fighter extends Character {
     if (!isInsideBounds(this.position, game.outerBounds)) this.loseLife(game);
   }
 
-  // controls.runDirection: +1 runs clockwise (D key), -1 counterclockwise (A key), 0 stands still.
+  // controls.runDirection: +1 runs clockwise (D or right arrow), -1 counterclockwise (A or left arrow), 0 stands still.
   // controls.jumpRequested: true on the step the jump key was pressed.
   updateMovement(controls, stepSeconds, comets, fighterSettings) {
     if (this.movementMode === 'grounded') {

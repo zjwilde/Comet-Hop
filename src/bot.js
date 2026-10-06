@@ -219,14 +219,20 @@ function isBurstingOrExploding(weaponDefinition) {
   return Boolean(weaponDefinition.eruption || weaponDefinition.detonation);
 }
 
-// Rule of thumb: nothing that bursts or explodes at a target this close, if it could catch the shooter too.
-function isSafeAtThisRange(game, fighter, targetDistance) {
-  if (!game.settings.rules.shotsCanHurtTheirShooter || targetDistance >= game.settings.bot.pointBlankMetres) return true;
-  const { weapons } = game.settings;
-  return !weaponsThatFire(fighter.arsenal, weapons).some((weaponName) => isBurstingOrExploding(weapons[weaponName]));
+// Rule of thumb: a bursting or exploding weapon is too dangerous at a target closer than pointBlankMetres, or (for a
+// big blast) closer than its blast radius plus a step back. Only matters when shots can hurt their shooter.
+function isTooCloseFor(game, weaponDefinition, targetDistance) {
+  if (!game.settings.rules.shotsCanHurtTheirShooter || !isBurstingOrExploding(weaponDefinition)) return false;
+  const blastRadius = weaponDefinition.detonation ? weaponDefinition.detonation.blastRadius : 0;
+  return targetDistance < Math.max(game.settings.bot.pointBlankMetres, blastRadius + 1.5);
 }
 
-// Its hardest-hitting carried weapon, leaving out bursting or exploding ones when the target is close.
+function isSafeAtThisRange(game, fighter, targetDistance) {
+  const { weapons } = game.settings;
+  return !weaponsThatFire(fighter.arsenal, weapons).some((weaponName) => isTooCloseFor(game, weapons[weaponName], targetDistance));
+}
+
+// Its hardest-hitting carried weapon, leaving out bursting or exploding ones when the target is too close for them.
 function preferredWeapon(game, fighter, target) {
   const { weapons } = game.settings;
   const carriedNames = fighter.arsenal.carriedWeapons.map((carried) => carried.weaponName);
@@ -238,11 +244,11 @@ function preferredWeapon(game, fighter, target) {
     const burstDamage = definition.eruption ? definition.eruption.fragmentCount * definition.eruption.fragmentDamage * 0.3 : 0;
     return definition.damage + burstDamage + (definition.detonation ? definition.detonation.damageAtCentre : 0);
   };
-  const explodes = (weaponName) => (weapons[weaponName].firesAllCarriedWeapons
-    ? carriedNames.some((name) => !weapons[name].firesAllCarriedWeapons && isBurstingOrExploding(weapons[name]))
-    : isBurstingOrExploding(weapons[weaponName]));
-  const close = game.settings.rules.shotsCanHurtTheirShooter && distance(fighter.position, target.position) < game.settings.bot.pointBlankMetres;
-  const choices = carriedNames.filter((weaponName) => !(close && explodes(weaponName)));
+  const targetDistance = distance(fighter.position, target.position);
+  const tooClose = (weaponName) => (weapons[weaponName].firesAllCarriedWeapons
+    ? carriedNames.some((name) => !weapons[name].firesAllCarriedWeapons && isTooCloseFor(game, weapons[name], targetDistance))
+    : isTooCloseFor(game, weapons[weaponName], targetDistance));
+  const choices = carriedNames.filter((weaponName) => !tooClose(weaponName));
   return choices.reduce((best, weaponName) => (punchOf(weaponName) > punchOf(best) ? weaponName : best), choices[0]);
 }
 
@@ -251,9 +257,10 @@ function hasClearLineOfSight(game, fromPoint, toPoint) {
 }
 
 // +1 or -1 to run away from a bursting or exploding shot (anyone's) that is close and still heading this way, or null.
+// A shot with a bigger blast counts as close from further away.
 function runDirectionAwayFromDanger(game, fighter) {
   const threat = game.projectiles.find((projectile) => (projectile.eruption || projectile.isFragment || projectile.detonation)
-    && distance(projectile.position, fighter.position) < game.settings.bot.dangerZoneMetres
+    && distance(projectile.position, fighter.position) < game.settings.bot.dangerZoneMetres + (projectile.detonation ? projectile.detonation.blastRadius : 0)
     && dot(projectile.velocity, subtract(fighter.position, projectile.position)) > 0);
   if (!threat) return null;
   const centre = game.comets[fighter.groundedCometIndex].centre;

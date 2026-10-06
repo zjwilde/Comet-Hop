@@ -142,3 +142,41 @@ test('volcano fragments never hit the shooter, nor the target the bomb itself hi
   assert.equal(allHits[0].target, target);
   assert.ok(projectiles.every((fragment) => fragment.cannotHitIds.includes(shooter.id) && fragment.cannotHitIds.includes(target.id)));
 });
+
+// Fires a mortar shell and steps until it detonates. Returns { blast, hits } or null if it never did.
+function fireMortarUntilBlast(shooter, aimDirection, muzzleSpeed, characters = []) {
+  const projectiles = [createProjectile(shooter, aimDirection, weapons.mortar, muzzleSpeed)];
+  const allHits = [];
+  for (let step = 0; step < 1200 && projectiles.length > 0; step += 1) {
+    const { blasts, hits } = updateProjectiles(projectiles, stepSeconds, comets, characters, outerBounds);
+    allHits.push(...hits);
+    if (blasts.length > 0) return { blast: blasts[0], hits: allHits, projectilesLeft: projectiles.length };
+  }
+  return null;
+}
+
+test('a mortar shell explodes where it lands on a comet, on the surface, with its own big blast', () => {
+  const comet = comets[3];
+  const shooter = shooterAt({ x: comet.centre.x - 1, y: comet.centre.y - comet.radius - 4 });
+  const outcome = fireMortarUntilBlast(shooter, { x: 0, y: 1 }, 3);
+  assert.ok(outcome, 'exploded');
+  assert.equal(outcome.projectilesLeft, 0);
+  assert.ok(Math.abs(distance(outcome.blast.position, comet.centre) - comet.radius) < 1e-9, 'on the surface');
+  assert.equal(outcome.blast.blastRadius, weapons.mortar.detonation.blastRadius);
+  assert.ok(weapons.mortar.detonation.blastRadius > weapons.drill.detonation.blastRadius, 'bigger than the drill blast');
+});
+
+test('a mortar shell hitting someone explodes right there, instead of a plain hit', () => {
+  const shooter = shooterAt({ x: 10, y: 3 });
+  const target = targetAt({ x: 12, y: 3 });
+  const outcome = fireMortarUntilBlast(shooter, { x: 1, y: 0 }, 6, [shooter, target]);
+  assert.ok(outcome, 'exploded');
+  assert.deepEqual(outcome.hits, [], 'no plain hit');
+  assert.ok(Math.abs(distance(outcome.blast.position, target.position) - target.bodyRadius) < 1e-9, 'centred on the point of contact');
+  assert.ok(Math.abs(blastStrengthAt(outcome.blast, target) - 1) < 1e-9, 'full strength on the target');
+});
+
+test('the mortar is slow: its fastest shell is slower than any fixed-speed weapon', () => {
+  assert.ok(weapons.mortar.muzzleSpeedRange.fastest < weapons.blaster.projectileSpeed);
+  assert.ok(weapons.mortar.muzzleSpeedRange.fastest < weapons.heavyCannon.projectileSpeed);
+});

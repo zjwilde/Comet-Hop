@@ -21,8 +21,9 @@ Game's existing "abilities as moves with limits" approach to player movement.
 
 - **A:** run counterclockwise around the comet currently stood on.
 - **D:** run clockwise around the comet currently stood on.
-- **W:** jump (leaves the surface). (Changed from the arrow keys to W/A/D on 2026-10-06. Bindings live in one table at
-  the top of `src/input.js`.)
+- **W:** jump (leaves the surface).
+- The arrow keys (Left, Right, Up) do the same as A, D, W. (Arrows first, then W/A/D only, then both, all on
+  2026-10-06; both are wanted because of touchpad play. Bindings live in one table at the top of `src/input.js`.)
 - **Mouse position:** aim direction, independent of movement.
 - **Left mouse button:** fire the current weapon.
 - **Tab:** switch weapon. **R:** restart.
@@ -108,7 +109,7 @@ Plain ES modules in `src/`, all tunable numbers in `src/settings.js`. `npm start
 - Weapons are still plain settings data with behaviour flags (`passesThroughComets`, `eruption`,
   `firesAllCarriedWeapons`); likely to become classes once there are many more.
 - Weapons: Blaster (unlimited, fixed speed), Heavy Cannon (fixed speed), Volcano Bomb (adjustable power, erupts into
-  fragments), Drill (adjustable power; bores into the first comet it meets and detonates on coming out of the far surface, with a blast that fades from centre to edge), Barrage (drone loot). Crates on comet surfaces hold one
+  fragments), Drill (adjustable power; bores into the first comet it meets and detonates on coming out of the far surface, with a blast that fades from centre to edge), Mortar (user's request: slow muzzle speed, big blast; detonates on impact with a comet or a character, 3.5 m blast), Barrage (drone loot). Crates on comet surfaces hold one
   crate weapon; the drone's floating loot crate holds a bonus weapon plus the Barrage.
 - The aim path uses the same physics step as real shots, and a test checks they match exactly.
 

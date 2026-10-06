@@ -130,3 +130,24 @@ test('the bot runs from a bursting shell coming down beside it', async () => {
   const controls = game.bot.controller.decideControls(game, game.bot, stepSeconds);
   assert.equal(controls.runDirection, -1, 'runs counterclockwise, away from it');
 });
+
+test('the bot keeps its mortar for targets beyond the reach of its big blast', async () => {
+  const game = await botMatch(12, (settings) => {
+    settings.bot.chanceToJumpPerDecision = 0;
+    settings.crates.spawnIntervalSeconds = 1000;
+  });
+  game.bot.arsenal.carriedWeapons.push({ weaponName: 'mortar', ammoRemaining: 99 });
+  game.bot.arsenal.selectedIndex = 1;
+  // Facing each other across the gap between comets 1 and 2, about 4.5 m apart: beyond the general point-blank
+  // distance, but inside the mortar's blast radius plus a step back. (From here a mortar lob is otherwise possible.)
+  const [botComet, playerComet] = [game.comets[1], game.comets[2]];
+  const angleFacing = (from, to) => Math.atan2(to.centre.y - from.centre.y, to.centre.x - from.centre.x);
+  game.bot.placeOnComet(game.comets, 1, angleFacing(botComet, playerComet));
+  game.player.placeOnComet(game.comets, 2, angleFacing(playerComet, botComet));
+  makePlayerUnhurtable(game);
+  const separation = Math.hypot(game.player.position.x - game.bot.position.x, game.player.position.y - game.bot.position.y);
+  assert.ok(separation > game.settings.bot.pointBlankMetres && separation < game.settings.weapons.mortar.detonation.blastRadius + 1.5, `separation ${separation.toFixed(1)}`);
+  for (let step = 0; step < 5 / stepSeconds; step += 1) stepGame(game, stepSeconds);
+  assert.equal(game.bot.arsenal.carriedWeapons[1].ammoRemaining, 99, 'never fired the mortar');
+  assert.equal(game.bot.vitals.health, game.settings.rules.maxHealth);
+});

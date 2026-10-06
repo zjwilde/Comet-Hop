@@ -113,7 +113,7 @@ export const settings = {
     // The loot crate floats where the drone died and vanishes if not collected in time. It holds the special weapon
     // plus one of the bonus weapons, chosen at random, so the special weapon always has something strong to fire.
     lootSpecialWeapon: 'barrage',
-    lootBonusWeapons: ['heavyCannon', 'volcanoBomb', 'drill'],
+    lootBonusWeapons: ['heavyCannon', 'volcanoBomb', 'drill', 'mortar'],
     lootLifetimeSeconds: 20,
     bodyRadius: 0.6,
     cruiseSpeed: 4,
@@ -129,7 +129,7 @@ export const settings = {
     maximumCratesAtOnce: 2,
     size: 0.7,
     // Each crate holds one of these, chosen at random.
-    weaponsInside: ['heavyCannon', 'volcanoBomb', 'drill'],
+    weaponsInside: ['heavyCannon', 'volcanoBomb', 'drill', 'mortar'],
   },
 
   // Each weapon either has a fixed projectileSpeed, or a muzzleSpeedRange whose speed is chosen by how far the mouse
@@ -216,12 +216,39 @@ export const settings = {
       showsAimPath: true,
       eruption: null,
       // Damage and knockback are full at the blast centre and fade to nothing at blastRadius (measured to the nearest
-      // edge of a character's body). The shooter is never hurt.
+      // edge of a character's body). trigger: 'leavingFirstComet' (on coming out of the first comet it bored into) or
+      // 'impact' (wherever it hits a comet or a character).
       detonation: {
+        trigger: 'leavingFirstComet',
         blastRadius: 1.8,
         damageAtCentre: 35,
         knockbackSpeedAtCentre: 6,
         flashColour: '#fff4c2',
+      },
+    },
+    // A slow, high lob with a big blast wherever it lands, on a comet or on someone. The shell itself does no damage;
+    // everything is in the blast.
+    mortar: {
+      displayName: 'Mortar',
+      projectileColour: '#d4b05a',
+      projectileShape: 'ball',
+      cooldownSeconds: 1.8,
+      muzzleSpeedRange: { slowest: 2, fastest: 6.5 },
+      projectileLifetimeSeconds: 8,
+      projectileRadius: 0.2,
+      damage: 0,
+      knockbackSpeed: 0,
+      gravityScale: 1,
+      ammoPerPickup: 3,
+      passesThroughComets: false,
+      showsAimPath: true,
+      eruption: null,
+      detonation: {
+        trigger: 'impact',
+        blastRadius: 3.5,
+        damageAtCentre: 45,
+        knockbackSpeedAtCentre: 8,
+        flashColour: '#ffe2a8',
       },
     },
     // Special loot from the drone: each shot fires every other weapon carried at once, using only the Barrage's own

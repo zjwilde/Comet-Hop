@@ -3,15 +3,16 @@
 // touchpads and pens all behave the same.
 import { screenToWorld } from './render.js';
 
-// Which physical key does what (KeyboardEvent.code values, so they stay in the same place on any keyboard layout).
+// Which physical keys do what (KeyboardEvent.code values, so they stay in the same place on any keyboard layout).
+// W/A/D and the arrow keys both work, so either hand position can be used.
 const keyBindings = {
-  runCounterclockwise: 'KeyA',
-  runClockwise: 'KeyD',
-  jump: 'KeyW',
-  switchWeapon: 'Tab',
-  restart: 'KeyR',
+  runCounterclockwise: ['KeyA', 'ArrowLeft'],
+  runClockwise: ['KeyD', 'ArrowRight'],
+  jump: ['KeyW', 'ArrowUp'],
+  switchWeapon: ['Tab'],
+  restart: ['KeyR'],
 };
-const keysThisGameUses = new Set(Object.values(keyBindings));
+const keysThisGameUses = new Set(Object.values(keyBindings).flat());
 
 export function createInput(canvas) {
   const heldKeys = new Set();
@@ -21,15 +22,16 @@ export function createInput(canvas) {
   let jumpRequested = false;
   let switchWeaponRequested = false;
   let restartRequested = false;
+  const isAnyHeld = (keyCodes) => keyCodes.some((keyCode) => heldKeys.has(keyCode));
 
   window.addEventListener('keydown', (event) => {
     if (!keysThisGameUses.has(event.code)) return;
     event.preventDefault();
     heldKeys.add(event.code);
     if (event.repeat) return;
-    if (event.code === keyBindings.jump) jumpRequested = true;
-    if (event.code === keyBindings.switchWeapon) switchWeaponRequested = true;
-    if (event.code === keyBindings.restart) restartRequested = true;
+    if (keyBindings.jump.includes(event.code)) jumpRequested = true;
+    if (keyBindings.switchWeapon.includes(event.code)) switchWeaponRequested = true;
+    if (keyBindings.restart.includes(event.code)) restartRequested = true;
   });
   window.addEventListener('keyup', (event) => heldKeys.delete(event.code));
   window.addEventListener('blur', () => {
@@ -64,7 +66,7 @@ export function createInput(canvas) {
     // The controls for one physics step. One-off presses are handed over once and then cleared.
     takeControls(view) {
       const controls = {
-        runDirection: (heldKeys.has(keyBindings.runClockwise) ? 1 : 0) - (heldKeys.has(keyBindings.runCounterclockwise) ? 1 : 0),
+        runDirection: (isAnyHeld(keyBindings.runClockwise) ? 1 : 0) - (isAnyHeld(keyBindings.runCounterclockwise) ? 1 : 0),
         jumpRequested,
         fireHeld,
         firePressed,

@@ -63,10 +63,10 @@ function cometHitBy(projectile, comets) {
   return comets.find((comet) => distance(comet.centre, projectile.position) <= comet.radius + projectile.radius);
 }
 
-// For a detonating shot: notes the first comet it bores into, and returns the blast point (on that comet's surface)
-// on the step it comes back out of the far side. Returns null otherwise.
+// For a shot that detonates on leaving the first comet it bores into (the drill): notes that comet, and returns the
+// blast point (on that comet's surface) on the step it comes back out of the far side. Returns null otherwise.
 function detonationPoint(projectile, comets) {
-  if (!projectile.detonation) return null;
+  if (projectile.detonation?.trigger !== 'leavingFirstComet') return null;
   if (projectile.drilledCometIndex === null) {
     const enteredIndex = comets.findIndex((comet) => distance(comet.centre, projectile.position) < comet.radius);
     if (enteredIndex >= 0) projectile.drilledCometIndex = enteredIndex;
@@ -148,6 +148,14 @@ export function updateProjectiles(projectiles, stepSeconds, comets, characters, 
       && (character.id !== projectile.ownerId || projectile.hasClearedShooter)
       && isAlive(character.vitals)
       && distance(character.position, projectile.position) <= character.bodyRadius + projectile.radius);
+    const detonatesOnImpact = projectile.detonation?.trigger === 'impact';
+    if (target && detonatesOnImpact) {
+      // Centred where the shell touches the target's body, so a direct hit is a full-strength blast.
+      const contactPoint = add(target.position, scale(normalize(subtract(projectile.position, target.position)), target.bodyRadius));
+      blasts.push({ ...projectile.detonation, position: contactPoint, cannotHitIds: [...projectile.cannotHitIds] });
+      noteLanding(projectile, contactPoint);
+      continue;
+    }
     if (target) {
       hits.push({ projectile, target });
       noteLanding(projectile, projectile.position);
@@ -158,6 +166,10 @@ export function updateProjectiles(projectiles, stepSeconds, comets, characters, 
     const comet = cometHitBy(projectile, comets);
     if (comet) {
       noteLanding(projectile, projectile.position);
+      if (detonatesOnImpact) {
+        const surfacePoint = add(comet.centre, scale(normalize(subtract(projectile.position, comet.centre)), comet.radius));
+        blasts.push({ ...projectile.detonation, position: surfacePoint, cannotHitIds: [...projectile.cannotHitIds] });
+      }
       if (projectile.eruption) {
         const upFromSurface = normalize(subtract(projectile.position, comet.centre));
         const burstPoint = add(comet.centre, scale(upFromSurface, comet.radius + projectile.eruption.fragmentRadius + 0.02));
