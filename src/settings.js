@@ -65,7 +65,8 @@ export const settings = {
     // When it can't shoot its target from where it is, it hops towards it; this is how big a gap between comet surfaces
     // it treats as hoppable (matches tests/layout-reachability.test.js).
     longestHopGapMetres: 5.6,
-    // Aiming like a person. Raising these makes it easier to beat.
+    // Aiming like a person. Raising these makes it easier to beat. In the browser, the difficulty slider sets these
+    // (and savesLimitedAmmo) from src/bot-difficulty.js; these fixed values are about 0.7 on that slider.
     // It aims at where it saw its target this long ago.
     reactionSeconds: 0.3,
     // Random error in each shot's direction and power, re-rolled after every shot.
@@ -91,6 +92,7 @@ export const settings = {
     // good moment: the target is in the air (can't dodge), could be finished off, has stood still this long, or (for
     // lobs) its last lob at this target landed this close; or a straight shot is within this fraction of its reach
     // with nothing in the way; or the bot itself is down to this fraction of its health.
+    savesLimitedAmmo: true,
     sittingDuckSeconds: 1.5,
     zeroedInMetres: 2.5,
     easyStraightShotReachFraction: 0.5,

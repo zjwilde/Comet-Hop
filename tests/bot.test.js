@@ -253,3 +253,30 @@ test('the bot goes and gets a loot crate once it lands, even several comets away
   }
   assert.ok(game.bot.arsenal.carriedWeapons.some((carried) => carried.weaponName === 'barrage'), 'collected the loot');
 });
+
+test('an easy bot does not save limited ammo: it spends it even on a healthy target moving about', async () => {
+  const { game, limitedAmmoLeft, play } = await ammoScenario(runningBackAndForth, (settings) => { settings.bot.savesLimitedAmmo = false; });
+  makePlayerUnhurtable(game);
+  play(15);
+  assert.ok(limitedAmmoLeft() < 6, 'spent some');
+});
+
+test('with no shot at its enemy, the bot takes Blaster shots at a drone in reach, never spending limited ammo on it', async () => {
+  const game = await botMatch(5, (settings) => {
+    settings.drone.includeInMatch = true;
+    // Parked and quiet, so the test is only about the bot's shooting.
+    settings.drone.cruiseSpeed = 0;
+    settings.drone.secondsBetweenVolleys = 1000;
+    settings.crates.spawnIntervalSeconds = 1000;
+  });
+  game.bot.placeOnComet(game.comets, 0, -Math.PI / 2);
+  // The enemy is far across the map: no shot at it from here.
+  game.player.placeOnComet(game.comets, 6, -Math.PI / 2);
+  makePlayerUnhurtable(game);
+  game.drone.position = { x: game.bot.position.x, y: game.bot.position.y - 4 };
+  game.drone.waypoint = { ...game.drone.position };
+  game.bot.arsenal.carriedWeapons.push({ weaponName: 'mortar', ammoRemaining: 3 });
+  for (let step = 0; step < 3 / stepSeconds; step += 1) stepGame(game, stepSeconds);
+  assert.ok(game.drone.vitals.health < game.drone.rules.maxHealth || game.drone.vitals.state !== 'alive', 'the drone was hit');
+  assert.equal(game.bot.arsenal.carriedWeapons[1].ammoRemaining, 3, 'no mortar shells spent');
+});

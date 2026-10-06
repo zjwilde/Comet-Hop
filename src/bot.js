@@ -5,6 +5,8 @@
 //   heads for a loot crate on another comet once it has landed; when
 //   it can't shoot its target from where it is, goes after it (runs round towards it on the same comet, or hops along
 //   the shortest route of comets to it); otherwise wanders (runs, stands, sometimes jumps).
+// - The drone: it takes a Blaster shot at the drone when it has no shot at its enemy and the drone happens to be in
+//   reach, but never goes out of its way for it, never switches weapon for it, and never spends limited ammo on it.
 // - Choosing a weapon: its hardest-hitting one that can reach the target, but never a bursting or exploding one at a
 //   target close by. Its feel for reach is a rough rule, not a calculation; it won't fire at targets out of reach.
 //   It saves limited ammo for good moments (see isGoodMomentToSpend), poking with the Blaster otherwise.
@@ -28,6 +30,8 @@ export class BotController {
     this.elapsedSeconds = 0;
     // Where it has recently seen its target, oldest first: [{ seconds, targetId, position }]. For its reaction time.
     this.targetSightings = [];
+    // The same, for the drone.
+    this.droneSightings = [];
     // This shot's random error; re-rolled after every shot so the aim doesn't jitter between frames.
     this.wobble = { turnRadians: 0, powerFactor: 1 };
     // What it has learned about lobbing at the current target: a turn added to its first guess, and a power multiplier.
@@ -77,6 +81,14 @@ export class BotController {
         ? { firedFrom: { ...fighter.position }, targetId: target.id, targetPositionThen: { ...target.position }, explosive: shot.explosive, blastRadius: shot.blastRadius }
         : null;
     }
+    // Nothing to shoot at its enemy right now: a passing shot at the drone, if it happens to be in reach.
+    if (!(shot && shot.worthFiring) && !controls.switchWeaponRequested) {
+      const droneShot = this.shotAtDrone(game, fighter);
+      if (droneShot) {
+        controls.aimPoint = droneShot.aimPoint;
+        controls.fireHeld = true;
+      }
+    }
     return controls;
   }
 
@@ -121,13 +133,26 @@ export class BotController {
     this.lastLobMissMetres = distance(landing.position, target.position);
   }
 
-  // Records where the target is now, and returns where it was reactionSeconds ago.
-  rememberAndRecall(target, botSettings) {
-    this.targetSightings.push({ seconds: this.elapsedSeconds, targetId: target.id, position: { ...target.position } });
+  // Records where the target is now, and returns where it was reactionSeconds ago. sightingsName: which memory to use
+  // ('targetSightings' for its enemy, 'droneSightings' for the drone).
+  rememberAndRecall(target, botSettings, sightingsName = 'targetSightings') {
+    this[sightingsName].push({ seconds: this.elapsedSeconds, targetId: target.id, position: { ...target.position } });
     const oldestWorthKeeping = this.elapsedSeconds - Math.max(botSettings.reactionSeconds, botSettings.sittingDuckSeconds) - 0.5;
-    this.targetSightings = this.targetSightings.filter((sighting) => sighting.seconds >= oldestWorthKeeping && sighting.targetId === target.id);
-    const recalled = this.targetSightings.filter((sighting) => sighting.seconds <= this.elapsedSeconds - botSettings.reactionSeconds).at(-1);
-    return (recalled ?? this.targetSightings[0]).position;
+    this[sightingsName] = this[sightingsName].filter((sighting) => sighting.seconds >= oldestWorthKeeping && sighting.targetId === target.id);
+    const recalled = this[sightingsName].filter((sighting) => sighting.seconds <= this.elapsedSeconds - botSettings.reactionSeconds).at(-1);
+    return (recalled ?? this[sightingsName][0]).position;
+  }
+
+  // A Blaster shot at the drone, if the weapon in hand never runs out and fires straight, and the drone is in reach with
+  // a clear line. Otherwise null.
+  shotAtDrone(game, fighter) {
+    const { drone, settings } = game;
+    if (!drone || !drone.isAlive()) return null;
+    const seenDronePosition = this.rememberAndRecall(drone, settings.bot, 'droneSightings');
+    const carried = selectedWeapon(fighter.arsenal);
+    if (carried.ammoRemaining !== null || settings.weapons[carried.weaponName].muzzleSpeedRange) return null;
+    const shot = this.aimAt(game, fighter, drone, seenDronePosition);
+    return shot.worthFiring ? shot : null;
   }
 
   // Works out the aim point and whether a shot is worth taking now, using only rules of thumb.
@@ -167,6 +192,8 @@ export class BotController {
   // Whether now is a good moment to spend a limited-ammo shot of this weapon (punch: how hard it hits) on the target.
   isGoodMomentToSpend(game, fighter, target, weaponName, punch) {
     const { weapons, bot: botSettings } = game.settings;
+    // An easy bot doesn't bother saving: every moment is good enough.
+    if (!botSettings.savesLimitedAmmo) return true;
     const definition = weapons[weaponName];
     const targetDistance = distance(fighter.position, target.position);
     const sightingsLongEnough = this.targetSightings.filter((sighting) => sighting.seconds >= this.elapsedSeconds - botSettings.sittingDuckSeconds);

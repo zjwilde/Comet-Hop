@@ -27,6 +27,9 @@ Game's existing "abilities as moves with limits" approach to player movement.
 - **Mouse position:** aim direction, independent of movement.
 - **Left mouse button:** fire the current weapon.
 - **Tab** or **/** (next to the arrow keys): switch weapon. **R:** restart.
+- **Bot difficulty slider** (top centre; user's request, 2026-10-06): 0 to 1, default 0.5, remembered per browser.
+  Moves reaction, aim and power wobble, and correction between easiest and hardest values (`src/bot-difficulty.js`);
+  below 0.35 the bot stops saving ammo. The fixed values in `settings.js` (used by tests) are about 0.7.
 - **Touchpad-friendly (the user currently plays on a touchpad, 2026-10-06):** right-click / two-finger tap is blocked
   (it opened the browser menu, swallowing the next tap); a ring flashes at the crosshair whenever a press registers. A
   press during cooldown does nothing: the user rejected remembering it and firing automatically when ready.
@@ -111,7 +114,11 @@ Plain ES modules in `src/`, all tunable numbers in `src/settings.js`. `npm start
   ground; it doesn't chase while watching its own lob, and steps back from where an explosive lob is headed. (These
   fixed frequent mortar self-hits the user reported: nearly 30% of shots, now about 2%.) It saves limited ammo like a person (user's point,
   2026-10-06): pokes with the Blaster, and spends limited-ammo shots only at good moments (target airborne, nearly
-  dead, standing still, or already ranged in; an easy close straight shot; or the bot itself low on health). Difficulty
+  dead, standing still, or already ranged in; an easy close straight shot; or the bot itself low on health).
+  Loot: the drone's loot crate falls onto a comet (always reachable), and the bot heads for it once landed, hopping
+  along the shortest route of comets. The drone: the bot takes Blaster shots at it only when it has no shot at its
+  enemy and the drone happens to be in reach; it never changes course, switches weapon, or spends limited ammo for
+  it (user's direction). Measured at about 20 drone damage per minute per bot, below the user's ~34 in a playtest. Difficulty
   lives in a few plain settings (reaction, wobble, correction) under `bot` in `src/settings.js`.
 - Weapons are still plain settings data with behaviour flags (`passesThroughComets`, `eruption`,
   `firesAllCarriedWeapons`); likely to become classes once there are many more.

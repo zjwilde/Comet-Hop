@@ -5,8 +5,36 @@ import { HumanController } from './controllers.js';
 import { createInput } from './input.js';
 import { createView, drawGame, screenToWorld } from './render.js';
 import { summarizeMatchLog } from './match-log.js';
+import { applyBotDifficulty, difficultyName, defaultDifficulty } from './bot-difficulty.js';
 
 const canvas = document.getElementById('game');
+
+// The bot difficulty slider. It changes the shared settings, so it takes effect at once, even mid-match. The choice is
+// remembered in this browser between visits (if the browser allows it).
+const difficultyStorageKey = 'comet-hop-bot-difficulty';
+const difficultySlider = document.getElementById('bot-difficulty');
+const difficultyLabel = document.getElementById('bot-difficulty-name');
+function setBotDifficulty(difficulty) {
+  applyBotDifficulty(settings.bot, difficulty);
+  difficultyLabel.textContent = difficultyName(difficulty);
+  try {
+    localStorage.setItem(difficultyStorageKey, String(difficulty));
+  } catch (error) {
+    // Not remembered; it still works for this visit.
+  }
+}
+let startingDifficulty = defaultDifficulty;
+try {
+  const remembered = localStorage.getItem(difficultyStorageKey);
+  if (remembered !== null && Number.isFinite(Number(remembered))) startingDifficulty = Number(remembered);
+} catch (error) {
+  // Nothing remembered.
+}
+difficultySlider.value = String(Math.round(startingDifficulty * 100));
+setBotDifficulty(startingDifficulty);
+difficultySlider.addEventListener('input', () => setBotDifficulty(Number(difficultySlider.value) / 100));
+// Hands the keyboard straight back to the game after using the slider.
+difficultySlider.addEventListener('change', () => difficultySlider.blur());
 const context = canvas.getContext('2d');
 const input = createInput(canvas);
 const stepSeconds = 1 / settings.physics.stepsPerSecond;
@@ -42,7 +70,7 @@ function newMatchId() {
 let matchId = newMatchId();
 function saveMatchLog() {
   if (game.matchLog.length === 0) return;
-  const body = JSON.stringify({ matchId, outcome: game.outcome, summary: summarizeMatchLog(game.matchLog), log: game.matchLog });
+  const body = JSON.stringify({ matchId, botDifficulty: settings.bot.difficulty, outcome: game.outcome, summary: summarizeMatchLog(game.matchLog), log: game.matchLog });
   fetch(`/match-log/${matchId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).catch(() => {});
 }
 setInterval(saveMatchLog, secondsBetweenLogSaves * 1000);

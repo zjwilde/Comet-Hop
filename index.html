@@ -8,10 +8,20 @@
     html, body { margin: 0; height: 100%; overflow: hidden; background: #060914; }
     /* touch-action and user-select stop the browser treating presses on the game as scrolling, zooming or selecting. */
     canvas { display: block; cursor: crosshair; touch-action: none; user-select: none; -webkit-user-select: none; }
+    #difficulty-panel {
+      /* Top centre, between the two fighters' panels, clear of the controls hint along the bottom. */
+      position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+      font: 14px system-ui, sans-serif; color: rgba(230, 236, 255, 0.75);
+    }
+    #difficulty-panel input { width: 140px; accent-color: #ff5ad1; }
   </style>
 </head>
 <body>
   <canvas id="game"></canvas>
+  <div id="difficulty-panel">
+    <label for="bot-difficulty">Bot: <span id="bot-difficulty-name">Normal</span></label>
+    <input id="bot-difficulty" type="range" min="0" max="100" step="1">
+  </div>
   <script type="module" src="src/main.js"></script>
 </body>
 </html>
