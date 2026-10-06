@@ -326,3 +326,17 @@ test('every fire press registers on screen, even one that cannot fire yet', asyn
   assert.ok(game.player.arsenal.cooldownSecondsRemaining > 0, 'still cooling down');
   assert.ok(game.player.secondsSinceFirePress < 0.02, 'but the press was seen');
 });
+
+test('a player can have many shots in the air at once, lobs included: only the cooldown limits firing', async () => {
+  const game = await quietGame();
+  giveWeapon(game.player.arsenal, 'volcanoBomb', game.settings.weapons);
+  // A gentle lob (a quarter power) that rises and falls back without escaping the comet, staying up for a while.
+  const aimPoint = add(game.player.position, { x: 0.3, y: -game.settings.aiming.mouseDistanceForFullPower / 4 });
+  let mostLobsInTheAir = 0;
+  for (let step = 0; step < 3 / stepSeconds; step += 1) {
+    stepFor(game, { ...noControls, fireHeld: true, aimPoint }, stepSeconds);
+    const lobsInTheAir = game.projectiles.filter((projectile) => projectile.ownerId === 'player' && projectile.adjustablePower).length;
+    mostLobsInTheAir = Math.max(mostLobsInTheAir, lobsInTheAir);
+  }
+  assert.ok(mostLobsInTheAir >= 2, `at most ${mostLobsInTheAir} in the air at once`);
+});
