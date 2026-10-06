@@ -32,14 +32,36 @@ fitCanvasToWindow();
 
 // Logs of matches ended with R, kept so they can still be looked at.
 const finishedMatchLogs = [];
+
+// Saves the match log into the project's playtest-logs folder (through the local server) every few seconds, when the
+// match ends, and when a new one starts, so a playtest can be looked at afterwards. Nothing leaves this computer.
+const secondsBetweenLogSaves = 10;
+function newMatchId() {
+  return `match-${new Date().toISOString().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '')}`;
+}
+let matchId = newMatchId();
+function saveMatchLog() {
+  if (game.matchLog.length === 0) return;
+  const body = JSON.stringify({ matchId, outcome: game.outcome, summary: summarizeMatchLog(game.matchLog), log: game.matchLog });
+  fetch(`/match-log/${matchId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).catch(() => {});
+}
+setInterval(saveMatchLog, secondsBetweenLogSaves * 1000);
+let savedFinishedMatch = false;
 let previousFrameTime = null;
 let unsimulatedSeconds = 0;
 function onFrame(frameTime) {
   if (previousFrameTime !== null) unsimulatedSeconds += Math.min(longestCatchUpSeconds, (frameTime - previousFrameTime) / 1000);
   previousFrameTime = frameTime;
   if (input.takeRestartRequest()) {
+    saveMatchLog();
     finishedMatchLogs.push(game.matchLog);
     game = createGame(settings, Math.random, keyboardAndMouse);
+    matchId = newMatchId();
+    savedFinishedMatch = false;
+  }
+  if (game.outcome && !savedFinishedMatch) {
+    saveMatchLog();
+    savedFinishedMatch = true;
   }
   while (unsimulatedSeconds >= stepSeconds) {
     stepGame(game, stepSeconds);
