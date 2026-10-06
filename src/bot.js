@@ -1,9 +1,10 @@
 // The bot's controller. It produces exactly the controls a human gives (run direction, jump, aim point, fire), so the
 // bot plays by the same rules as the player. It's meant to play like a person: it uses only what a person can see and
 // simple rules of thumb, and never calculates where a shot will go.
-// - Moving: runs from bursting or exploding shots (anyone's) coming down near it; grabs crates on its own comet; when
-//   it can't shoot its target from where it is, goes after it (runs round towards it on the same comet, or hops to the
-//   neighbouring comet closest to it); otherwise wanders (runs, stands, sometimes jumps).
+// - Moving: runs from bursting or exploding shots (anyone's) coming down near it; grabs crates on its own comet, and
+//   heads for a loot crate on another comet once it has landed; when
+//   it can't shoot its target from where it is, goes after it (runs round towards it on the same comet, or hops along
+//   the shortest route of comets to it); otherwise wanders (runs, stands, sometimes jumps).
 // - Choosing a weapon: its hardest-hitting one that can reach the target, but never a bursting or exploding one at a
 //   target close by. Its feel for reach is a rough rule, not a calculation; it won't fire at targets out of reach.
 //   It saves limited ammo for good moments (see isGoodMomentToSpend), poking with the Blaster otherwise.
@@ -198,14 +199,16 @@ export class BotController {
     }
   }
 
-  // Fills in controls.runDirection and controls.jumpRequested, in order of priority: dodging, a crate on this comet,
-  // going after a target it can't shoot from here (chasing, or null), then wandering.
+  // Fills in controls.runDirection and controls.jumpRequested, in order of priority: dodging, stepping back from its own
+  // lob, a crate on this comet, heading for a loot crate on another comet, going after a target it can't shoot from
+  // here (chasing, or null), then wandering.
   decideGroundMovement(game, fighter, controls, chasing) {
-    if (this.hopTargetCometIndex === fighter.groundedCometIndex || !chasing) this.hopTargetCometIndex = null;
-    if (chasing && this.hopTargetCometIndex === null) this.hopTargetCometIndex = neighbourCometTowards(game, fighter, chasing);
+    const lootElsewhere = game.crateSpawner.crates.find((crate) => crate.isLoot && !crate.falling && crate.cometIndex !== fighter.groundedCometIndex);
+    const headingFor = lootElsewhere ? lootElsewhere.position : chasing ? chasing.position : null;
+    this.hopTargetCometIndex = headingFor ? neighbourCometTowards(game, fighter, headingFor) : null;
     const awayFromDanger = runDirectionAwayFromDanger(game, fighter);
     const towardsCrate = runDirectionTowardsCrateOnSameComet(game, fighter);
-    const chasingOnThisComet = chasing && chasing.movementMode === 'grounded' && chasing.groundedCometIndex === fighter.groundedCometIndex;
+    const chasingOnThisComet = !lootElsewhere && chasing && chasing.movementMode === 'grounded' && chasing.groundedCometIndex === fighter.groundedCometIndex;
     if (awayFromDanger !== null) {
       controls.runDirection = awayFromDanger;
     } else if (this.lobInFlight && this.lobInFlight.explosive
@@ -343,24 +346,38 @@ function runDirectionAwayFromDanger(game, fighter) {
 
 // +1 (clockwise) or -1 (counterclockwise), whichever way round is shorter, or null if no crate is on this comet.
 function runDirectionTowardsCrateOnSameComet(game, fighter) {
-  const crate = game.crateSpawner.crates.find((candidate) => !candidate.floating && candidate.cometIndex === fighter.groundedCometIndex);
+  const crate = game.crateSpawner.crates.find((candidate) => !candidate.falling && candidate.cometIndex === fighter.groundedCometIndex);
   if (!crate) return null;
   return signedAngleGap(fighter.angleOnComet, crate.angleOnComet) >= 0 ? 1 : -1;
 }
 
-// The hoppable neighbouring comet that is closest to the target, if it's closer than the comet the fighter is on.
-function neighbourCometTowards(game, fighter, target) {
-  const here = game.comets[fighter.groundedCometIndex];
-  let best = null;
-  game.comets.forEach((comet, cometIndex) => {
-    const surfaceGap = distance(comet.centre, here.centre) - comet.radius - here.radius;
-    if (comet === here || surfaceGap > game.settings.bot.longestHopGapMetres) return;
-    const distanceToTarget = distance(comet.centre, target.position);
-    if (distanceToTarget < distance(here.centre, target.position) && (!best || distanceToTarget < best.distanceToTarget)) {
-      best = { cometIndex, distanceToTarget };
-    }
-  });
-  return best ? best.cometIndex : null;
+// The next comet to hop to on the way to a point: the first step of the fewest-hops route (between comets whose
+// surfaces are within a hop of each other) to the comet nearest that point. Null if already there or there's no route.
+// Like a person who knows the map, rather than only ever hopping to whichever neighbour looks closer.
+function neighbourCometTowards(game, fighter, point) {
+  const { comets } = game;
+  const destinationIndex = comets.reduce((nearest, comet, index) => (distance(comet.centre, point) < distance(comets[nearest].centre, point) ? index : nearest), 0);
+  const startIndex = fighter.groundedCometIndex;
+  if (destinationIndex === startIndex) return null;
+  const canHop = (fromIndex, toIndex) => fromIndex !== toIndex
+    && distance(comets[fromIndex].centre, comets[toIndex].centre) - comets[fromIndex].radius - comets[toIndex].radius <= game.settings.bot.longestHopGapMetres;
+  // Breadth-first search, remembering which comet each one was first reached from.
+  const reachedFrom = new Map([[startIndex, null]]);
+  const queue = [startIndex];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current === destinationIndex) break;
+    comets.forEach((_, next) => {
+      if (!reachedFrom.has(next) && canHop(current, next)) {
+        reachedFrom.set(next, current);
+        queue.push(next);
+      }
+    });
+  }
+  if (!reachedFrom.has(destinationIndex)) return null;
+  let step = destinationIndex;
+  while (reachedFrom.get(step) !== startIndex) step = reachedFrom.get(step);
+  return step;
 }
 
 function nearestEnemy(game, fighter) {

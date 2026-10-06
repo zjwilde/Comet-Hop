@@ -69,7 +69,7 @@ export function stepGame(game, stepSeconds) {
   for (const effect of game.effects) effect.secondsRemaining -= stepSeconds;
   game.effects = game.effects.filter((effect) => effect.secondsRemaining > 0);
 
-  updateCrates(game.crateSpawner, stepSeconds, game.comets, game.settings.crates, game.random);
+  updateCrates(game.crateSpawner, stepSeconds, game.comets, game.settings.crates, game.random, game.settings.world);
 
   const fightersStillIn = game.fighters.filter((fighter) => fighter.vitals.state !== 'eliminated');
   if (fightersStillIn.length <= 1) game.outcome = { winnerId: fightersStillIn[0]?.id ?? null };

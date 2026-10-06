@@ -117,9 +117,9 @@ function drawCrate(context, crate, size) {
   context.save();
   context.translate(crate.position.x, crate.position.y);
   context.rotate(crate.angleOnComet + Math.PI / 2);
-  context.fillStyle = crate.floating ? colours.lootCrate : colours.crate;
-  context.strokeStyle = crate.floating ? colours.lootCrateEdge : colours.crateEdge;
-  if (crate.floating) {
+  context.fillStyle = crate.isLoot ? colours.lootCrate : colours.crate;
+  context.strokeStyle = crate.isLoot ? colours.lootCrateEdge : colours.crateEdge;
+  if (crate.isLoot) {
     context.shadowColor = colours.lootCrate;
     context.shadowBlur = 18;
     // Blinks during its last few seconds.

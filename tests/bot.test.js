@@ -59,7 +59,8 @@ test('the bot heads for a crate on its own comet and collects it', async () => {
   const comet = game.comets[game.bot.groundedCometIndex];
   const crateAngle = game.bot.angleOnComet + 2;
   game.crateSpawner.crates.push({
-    floating: false,
+    isLoot: false,
+    falling: false,
     cometIndex: game.bot.groundedCometIndex,
     angleOnComet: crateAngle,
     position: { x: comet.centre.x + Math.cos(crateAngle) * (comet.radius + 0.35), y: comet.centre.y + Math.sin(crateAngle) * (comet.radius + 0.35) },
@@ -230,4 +231,25 @@ test('the bot spends limited ammo to finish off a target that is nearly dead', a
   game.player.vitals.health = 20;
   play(15);
   assert.ok(limitedAmmoLeft() < 6, 'spent some');
+});
+
+test('the bot goes and gets a loot crate once it lands, even several comets away', async () => {
+  const game = await botMatch(3, (settings) => {
+    settings.crates.spawnIntervalSeconds = 1000;
+    settings.bot.chanceToJumpPerDecision = 0;
+  });
+  game.bot.placeOnComet(game.comets, 0, -Math.PI / 2);
+  // The player is far away on the same side, and can't be hurt, so the bot has no reason to go anywhere but the loot.
+  game.player.placeOnComet(game.comets, 1, Math.PI / 2);
+  makePlayerUnhurtable(game);
+  const farComet = game.comets[6];
+  game.crateSpawner.crates.push({
+    isLoot: true, falling: false, velocity: { x: 0, y: 0 }, cometIndex: 6, angleOnComet: -Math.PI / 2,
+    position: { x: farComet.centre.x, y: farComet.centre.y - farComet.radius - game.settings.crates.size / 2 },
+    weaponNames: ['drill', 'barrage'], secondsRemaining: 60,
+  });
+  for (let step = 0; step < 40 / stepSeconds && !game.bot.arsenal.carriedWeapons.some((carried) => carried.weaponName === 'barrage'); step += 1) {
+    stepGame(game, stepSeconds);
+  }
+  assert.ok(game.bot.arsenal.carriedWeapons.some((carried) => carried.weaponName === 'barrage'), 'collected the loot');
 });

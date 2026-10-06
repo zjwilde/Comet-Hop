@@ -1,5 +1,5 @@
 // The hazard drone: a neutral drone that, on top of flying around, fires a ring of shots in every direction at a
-// fixed interval, and drops a floating loot crate wherever it loses a life.
+// fixed interval, and drops a loot crate (which falls onto a comet) wherever it loses a life.
 import { directionFromAngle } from './vector.js';
 import { Drone } from './drone.js';
 import { createProjectile } from './projectiles.js';

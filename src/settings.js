@@ -98,7 +98,7 @@ export const settings = {
   },
 
   // The floating drone: a neutral hazard. It shoots a ring of shots in every direction now and then, can be shot by
-  // anyone, and drops a special floating loot crate when destroyed. It never runs out of lives and doesn't count
+  // anyone, and drops a special loot crate when destroyed, which falls onto a comet. It never runs out of lives and doesn't count
   // towards winning.
   drone: {
     includeInMatch: true,
@@ -119,7 +119,7 @@ export const settings = {
       passesThroughComets: false,
       eruption: null,
     },
-    // The loot crate floats where the drone died and vanishes if not collected in time. It holds the special weapon
+    // The loot crate drops where the drone died, falls onto a comet, and vanishes if not collected in time. It holds the special weapon
     // plus one of the bonus weapons, chosen at random, so the special weapon always has something strong to fire.
     lootSpecialWeapon: 'barrage',
     lootBonusWeapons: ['heavyCannon', 'volcanoBomb', 'drill', 'mortar'],

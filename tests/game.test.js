@@ -70,7 +70,7 @@ test('ordinary shots are stopped by comets', async () => {
 
 test('touching a crate gives the weapon inside, selected', async () => {
   const game = await quietGame();
-  game.crateSpawner.crates.push({ floating: false, cometIndex: 0, angleOnComet: 0, position: { ...game.player.position }, weaponNames: ['drill'], secondsRemaining: null });
+  game.crateSpawner.crates.push({ isLoot: false, falling: false, cometIndex: 0, angleOnComet: 0, position: { ...game.player.position }, weaponNames: ['drill'], secondsRemaining: null });
   stepFor(game, noControls, stepSeconds);
   assert.equal(selectedWeapon(game.player.arsenal).weaponName, 'drill');
   assert.equal(game.crateSpawner.crates.length, 0);
@@ -162,7 +162,7 @@ test('the drone never runs out of lives and does not count towards winning', asy
   assert.equal(game.outcome, null);
 });
 
-test('destroying the drone drops a floating loot crate (a bonus weapon plus the Barrage) that vanishes if left', async () => {
+test('destroying the drone drops a loot crate (a bonus weapon plus the Barrage) that vanishes if left', async () => {
   const game = await quietGame({ withDrone: true });
   game.drone.vitals.health = 1;
   const whereItDied = { ...game.drone.position };
@@ -170,7 +170,7 @@ test('destroying the drone drops a floating loot crate (a bonus weapon plus the 
   shot.position = { ...game.drone.position };
   game.projectiles.push(shot);
   stepFor(game, noControls, stepSeconds);
-  const loot = game.crateSpawner.crates.find((crate) => crate.floating);
+  const loot = game.crateSpawner.crates.find((crate) => crate.isLoot);
   assert.ok(loot);
   // The drone moves a fraction during the step before the shot lands.
   assert.ok(distance(loot.position, whereItDied) < 0.1);
@@ -182,7 +182,7 @@ test('destroying the drone drops a floating loot crate (a bonus weapon plus the 
 
 test('collecting loot gives the bonus weapon and the Barrage, with the Barrage selected', async () => {
   const game = await quietGame();
-  game.crateSpawner.crates.push({ floating: true, cometIndex: null, angleOnComet: 0, position: { ...game.player.position }, weaponNames: ['volcanoBomb', 'barrage'], secondsRemaining: 20 });
+  game.crateSpawner.crates.push({ isLoot: true, falling: true, velocity: { x: 0, y: 0 }, cometIndex: null, angleOnComet: 0, position: { ...game.player.position }, weaponNames: ['volcanoBomb', 'barrage'], secondsRemaining: 20 });
   stepFor(game, noControls, stepSeconds);
   const carriedNames = game.player.arsenal.carriedWeapons.map((carried) => carried.weaponName);
   assert.deepEqual(carriedNames, ['blaster', 'volcanoBomb', 'barrage']);
