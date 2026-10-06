@@ -20,9 +20,7 @@ export class Fighter extends Character {
     this.groundedCometIndex = null;
     this.angleOnComet = 0;
     this.arsenal = createArsenal();
-    // A fire press waiting for the weapon to be ready (see aiming.firePressMemorySeconds), and how long ago the fire
-    // button was last pressed (for the on-screen confirmation that a press registered).
-    this.firePressWaitingSeconds = 0;
+    // How long ago the fire button was last pressed (for the on-screen confirmation that a press registered).
     this.secondsSinceFirePress = Infinity;
   }
 
@@ -33,15 +31,9 @@ export class Fighter extends Character {
     if (controls.switchWeaponRequested) selectNextWeapon(this.arsenal);
     this.updateMovement(controls, stepSeconds, game.comets, settings.fighter);
     updateArsenalCooldown(this.arsenal, stepSeconds);
-    this.secondsSinceFirePress += stepSeconds;
-    if (controls.firePressed) {
-      this.firePressWaitingSeconds = settings.aiming.firePressMemorySeconds + stepSeconds;
-      this.secondsSinceFirePress = 0;
-    }
-    if (controls.fireHeld || controls.firePressed || this.firePressWaitingSeconds > 0) {
-      if (this.fireTowards(game, controls.aimPoint)) this.firePressWaitingSeconds = 0;
-    }
-    this.firePressWaitingSeconds = Math.max(0, this.firePressWaitingSeconds - stepSeconds);
+    this.secondsSinceFirePress = controls.firePressed ? 0 : this.secondsSinceFirePress + stepSeconds;
+    // A press fires only if the weapon is ready right then; a press during cooldown does nothing.
+    if (controls.fireHeld || controls.firePressed) this.fireTowards(game, controls.aimPoint);
     for (const crate of collectTouchedCrates(game.crateSpawner, this, settings.crates)) {
       for (const weaponName of crate.weaponNames) giveWeapon(this.arsenal, weaponName, settings.weapons);
     }

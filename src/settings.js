@@ -53,9 +53,6 @@ export const settings = {
     mouseDistanceForFullPower: 8,
     // How much of a curving shot's predicted path is drawn while aiming. Needs playtest tuning.
     aimPathPreviewSeconds: 0.8,
-    // A press (tap) made while the weapon is still cooling down is remembered this long, and fires (once) as soon as
-    // the weapon is ready. 0 means a press during cooldown is ignored.
-    firePressMemorySeconds: 0.35,
   },
 
   // The computer-controlled fighter. It plays by the same rules and controls as the human player.

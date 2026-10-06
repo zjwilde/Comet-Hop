@@ -27,8 +27,8 @@ Game's existing "abilities as moves with limits" approach to player movement.
 - **Left mouse button:** fire the current weapon.
 - **Tab:** switch weapon. **R:** restart.
 - **Touchpad-friendly (the user currently plays on a touchpad, 2026-10-06):** right-click / two-finger tap is blocked
-  (it opened the browser menu, swallowing the next tap); a tap made shortly before the weapon is ready fires once it is
-  (`aiming.firePressMemorySeconds`); a ring flashes at the crosshair whenever a press registers.
+  (it opened the browser menu, swallowing the next tap); a ring flashes at the crosshair whenever a press registers. A
+  press during cooldown does nothing: the user rejected remembering it and firing automatically when ready.
 
 ## Physics plan (discussed, not yet built)
 
