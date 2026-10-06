@@ -6,7 +6,8 @@
   <title>Comet Hop</title>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #060914; }
-    canvas { display: block; cursor: crosshair; }
+    /* touch-action and user-select stop the browser treating presses on the game as scrolling, zooming or selecting. */
+    canvas { display: block; cursor: crosshair; touch-action: none; user-select: none; -webkit-user-select: none; }
   </style>
 </head>
 <body>

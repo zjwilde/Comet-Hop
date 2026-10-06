@@ -86,6 +86,7 @@ export function drawGame(context, game, view) {
   }
   for (const projectile of game.projectiles) drawProjectile(context, projectile);
   for (const effect of game.effects) drawBlastFlash(context, effect);
+  if (isAlive(game.player.vitals)) drawFirePressConfirmation(context, game.player);
   context.restore();
 
   drawHud(context, game, view);
@@ -259,6 +260,22 @@ function drawProjectile(context, projectile) {
     context.arc(0, 0, projectile.radius, 0, 2 * Math.PI);
     context.fill();
   }
+  context.restore();
+}
+
+// A ring that briefly pops out at the crosshair whenever a fire press registers, so a tap that didn't fire can be told
+// apart from a tap that never arrived (for example, ignored by a touchpad while keys are held).
+const firePressRingSeconds = 0.3;
+function drawFirePressConfirmation(context, fighter) {
+  if (fighter.secondsSinceFirePress >= firePressRingSeconds) return;
+  const progress = fighter.secondsSinceFirePress / firePressRingSeconds;
+  context.save();
+  context.globalAlpha = 1 - progress;
+  context.strokeStyle = colours.text;
+  context.lineWidth = 0.06;
+  context.beginPath();
+  context.arc(fighter.aimPoint.x, fighter.aimPoint.y, 0.25 + 0.35 * progress, 0, 2 * Math.PI);
+  context.stroke();
   context.restore();
 }
 

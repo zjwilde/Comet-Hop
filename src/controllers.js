@@ -1,11 +1,12 @@
 // Controllers decide a fighter's controls each physics step. Any fighter can have any controller: the human player
 // and the bot differ only in this. (A remote online player would later be one more kind of controller.)
 // Every controller has decideControls(game, fighter, stepSeconds), returning
-// { runDirection, jumpRequested, fireHeld, aimPoint, switchWeaponRequested }. The bot's controller is in bot.js.
+// { runDirection, jumpRequested, fireHeld, firePressed, aimPoint, switchWeaponRequested }, where firePressed is true on
+// the step the fire button went down (a tap), and fireHeld while it stays down. The bot's controller is in bot.js.
 
 // Standing still, aiming at itself (which never fires).
 export function idleControls(fighter) {
-  return { runDirection: 0, jumpRequested: false, fireHeld: false, aimPoint: { ...fighter.position }, switchWeaponRequested: false };
+  return { runDirection: 0, jumpRequested: false, fireHeld: false, firePressed: false, aimPoint: { ...fighter.position }, switchWeaponRequested: false };
 }
 
 // Takes its controls from a source, such as the keyboard and mouse.

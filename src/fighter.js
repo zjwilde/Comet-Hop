@@ -20,6 +20,10 @@ export class Fighter extends Character {
     this.groundedCometIndex = null;
     this.angleOnComet = 0;
     this.arsenal = createArsenal();
+    // A fire press waiting for the weapon to be ready (see aiming.firePressMemorySeconds), and how long ago the fire
+    // button was last pressed (for the on-screen confirmation that a press registered).
+    this.firePressWaitingSeconds = 0;
+    this.secondsSinceFirePress = Infinity;
   }
 
   update(game, stepSeconds) {
@@ -29,7 +33,15 @@ export class Fighter extends Character {
     if (controls.switchWeaponRequested) selectNextWeapon(this.arsenal);
     this.updateMovement(controls, stepSeconds, game.comets, settings.fighter);
     updateArsenalCooldown(this.arsenal, stepSeconds);
-    if (controls.fireHeld) this.fireTowards(game, controls.aimPoint);
+    this.secondsSinceFirePress += stepSeconds;
+    if (controls.firePressed) {
+      this.firePressWaitingSeconds = settings.aiming.firePressMemorySeconds + stepSeconds;
+      this.secondsSinceFirePress = 0;
+    }
+    if (controls.fireHeld || controls.firePressed || this.firePressWaitingSeconds > 0) {
+      if (this.fireTowards(game, controls.aimPoint)) this.firePressWaitingSeconds = 0;
+    }
+    this.firePressWaitingSeconds = Math.max(0, this.firePressWaitingSeconds - stepSeconds);
     for (const crate of collectTouchedCrates(game.crateSpawner, this, settings.crates)) {
       for (const weaponName of crate.weaponNames) giveWeapon(this.arsenal, weaponName, settings.weapons);
     }
@@ -108,18 +120,19 @@ export class Fighter extends Character {
   }
 
   // The aim point sets the direction, and (for weapons with adjustable power) its distance sets the speed.
-  // Only the selected weapon's ammo is used, even when it fires several weapons at once.
+  // Only the selected weapon's ammo is used, even when it fires several weapons at once. Returns true if it fired.
   fireTowards(game, aimPoint) {
     const { weapons, aiming } = game.settings;
     const aimOffset = subtract(aimPoint, this.position);
-    if (length(aimOffset) === 0) return;
+    if (length(aimOffset) === 0) return false;
     // Worked out before firing, since firing a weapon's last shot drops it.
     const firingWeaponNames = weaponsThatFire(this.arsenal, weapons);
-    if (!tryFire(this.arsenal, weapons)) return;
+    if (!tryFire(this.arsenal, weapons)) return false;
     for (const weaponName of firingWeaponNames) {
       const muzzleSpeed = muzzleSpeedFor(weapons[weaponName], length(aimOffset), aiming);
       game.projectiles.push(createProjectile(this, normalize(aimOffset), weapons[weaponName], muzzleSpeed, game.settings.rules.shotsCanHurtTheirShooter));
     }
+    return true;
   }
 }
 

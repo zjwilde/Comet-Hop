@@ -302,3 +302,43 @@ test('self-damage on: a shot never hits its shooter as it leaves, even one outru
   assert.equal(hits.length, 1);
   assert.equal(hits[0].target, shooter);
 });
+
+// Fires the Heavy Cannon once, then taps (one step of firePressed, button not held) after the given delay, and counts
+// the cannon shots over the following second.
+async function cannonShotsAfterTapAt(secondsAfterFirstShot) {
+  const game = await quietGame();
+  giveWeapon(game.player.arsenal, 'heavyCannon', game.settings.weapons);
+  const aimPoint = add(game.player.position, { x: 0, y: -10 });
+  let cannonShots = 0;
+  const countNewShots = () => { cannonShots += game.projectiles.filter((projectile) => projectile.radius === game.settings.weapons.heavyCannon.projectileRadius && !projectile.counted).map((projectile) => { projectile.counted = true; return projectile; }).length; };
+  stepFor(game, { ...noControls, firePressed: true, aimPoint }, stepSeconds);
+  countNewShots();
+  stepFor(game, { ...noControls, aimPoint }, secondsAfterFirstShot);
+  stepFor(game, { ...noControls, firePressed: true, aimPoint }, stepSeconds);
+  for (let step = 0; step < 1 / stepSeconds; step += 1) {
+    stepFor(game, { ...noControls, aimPoint }, stepSeconds);
+    countNewShots();
+  }
+  return { cannonShots, game };
+}
+
+test('a tap shortly before the weapon is ready is remembered, and fires (once) as soon as it is', async () => {
+  const { cooldownSeconds } = (await copyOfSettings()).weapons.heavyCannon;
+  const { cannonShots } = await cannonShotsAfterTapAt(cooldownSeconds - 0.2);
+  assert.equal(cannonShots, 2, 'the first shot, then exactly one more from the remembered tap');
+});
+
+test('a tap long before the weapon is ready is not remembered', async () => {
+  const { cannonShots } = await cannonShotsAfterTapAt(0.1);
+  assert.equal(cannonShots, 1, 'only the first shot');
+});
+
+test('every fire press registers on screen, even one that cannot fire yet', async () => {
+  const game = await quietGame();
+  const aimPoint = add(game.player.position, { x: 0, y: -10 });
+  stepFor(game, { ...noControls, firePressed: true, aimPoint }, stepSeconds);
+  stepFor(game, { ...noControls, aimPoint }, 0.05);
+  stepFor(game, { ...noControls, firePressed: true, aimPoint }, stepSeconds);
+  assert.ok(game.player.arsenal.cooldownSecondsRemaining > 0, 'still cooling down');
+  assert.ok(game.player.secondsSinceFirePress < 0.02, 'but the press was seen');
+});

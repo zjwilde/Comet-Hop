@@ -18,4 +18,4 @@ export async function copyOfSettings() {
   return structuredClone(settings);
 }
 
-export const noControls = { runDirection: 0, jumpRequested: false, fireHeld: false, aimPoint: { x: 0, y: 0 }, switchWeaponRequested: false };
+export const noControls = { runDirection: 0, jumpRequested: false, fireHeld: false, firePressed: false, aimPoint: { x: 0, y: 0 }, switchWeaponRequested: false };

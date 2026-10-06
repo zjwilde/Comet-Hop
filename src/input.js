@@ -1,5 +1,6 @@
-// Keyboard and mouse. One-off presses (jump, switch weapon, restart, and a click to fire) are remembered until the game
-// takes them, so a quick tap is never missed between physics steps.
+// Keyboard and mouse (or touchpad). One-off presses (jump, switch weapon, restart, and a press to fire) are remembered
+// until the game takes them, so a quick tap is never missed between physics steps. Pointer events are used so mice,
+// touchpads and pens all behave the same.
 import { screenToWorld } from './render.js';
 
 // Which physical key does what (KeyboardEvent.code values, so they stay in the same place on any keyboard layout).
@@ -16,7 +17,7 @@ export function createInput(canvas) {
   const heldKeys = new Set();
   const mouseOnScreen = { x: 0, y: 0 };
   let fireHeld = false;
-  let fireClicked = false;
+  let firePressed = false;
   let jumpRequested = false;
   let switchWeaponRequested = false;
   let restartRequested = false;
@@ -35,19 +36,29 @@ export function createInput(canvas) {
     heldKeys.clear();
     fireHeld = false;
   });
-  canvas.addEventListener('mousemove', (event) => {
+  canvas.addEventListener('pointermove', (event) => {
     const canvasBox = canvas.getBoundingClientRect();
     mouseOnScreen.x = event.clientX - canvasBox.left;
     mouseOnScreen.y = event.clientY - canvasBox.top;
   });
-  canvas.addEventListener('mousedown', (event) => {
+  canvas.addEventListener('pointerdown', (event) => {
+    // Stops the browser selecting or dragging anything, which could otherwise steal the following movement.
+    event.preventDefault();
     if (event.button !== 0) return;
     fireHeld = true;
-    fireClicked = true;
+    firePressed = true;
+    // Keeps aim and release tracked even if the pointer drifts off the canvas while held.
+    canvas.setPointerCapture(event.pointerId);
   });
-  window.addEventListener('mouseup', (event) => {
+  canvas.addEventListener('pointerup', (event) => {
     if (event.button === 0) fireHeld = false;
   });
+  canvas.addEventListener('pointercancel', () => {
+    fireHeld = false;
+  });
+  // A right-click (on a touchpad, often a two-finger tap) would open the browser's menu, which swallows the next tap
+  // and stops the aim following the pointer while it's open.
+  canvas.addEventListener('contextmenu', (event) => event.preventDefault());
 
   return {
     // The controls for one physics step. One-off presses are handed over once and then cleared.
@@ -55,13 +66,14 @@ export function createInput(canvas) {
       const controls = {
         runDirection: (heldKeys.has(keyBindings.runClockwise) ? 1 : 0) - (heldKeys.has(keyBindings.runCounterclockwise) ? 1 : 0),
         jumpRequested,
-        fireHeld: fireHeld || fireClicked,
+        fireHeld,
+        firePressed,
         aimPoint: screenToWorld(view, mouseOnScreen),
         switchWeaponRequested,
       };
       jumpRequested = false;
       switchWeaponRequested = false;
-      fireClicked = false;
+      firePressed = false;
       return controls;
     },
     takeRestartRequest() {
