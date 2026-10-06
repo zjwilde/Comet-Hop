@@ -78,7 +78,9 @@ Game's existing "abilities as moves with limits" approach to player movement.
   the flight (length needs playtest tuning). For weapons that have a muzzle velocity, **mouse distance from the
   fighter sets the power.**
 - **Special loot (placeholder):** the Barrage: 4 shots, each firing every weapon carried at once, using only the
-  Barrage's ammo. Comes with a random ammo-limited weapon so it's never weak.
+  Barrage's ammo. Comes with a random ammo-limited weapon so it's never weak. **It is meant to be ridiculous** (user, 2026-10-06):
+  don't balance it down. Its own 1.5 s cooldown is shorter than the Mortar's, and that's fine. The skill is in using
+  it with a full inventory and picking a power that lands several weapons on target at once.
 - **Self-damage is on (2026-10-06)**, as in Gravitee Wars and tank games: your own shots, fragments and blasts can
   hurt you. It's a rule setting (`shotsCanHurtTheirShooter`) so it can be switched off. Friendly fire between
   teammates will be its own setting once teams exist.
