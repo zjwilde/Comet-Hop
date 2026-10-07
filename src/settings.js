@@ -65,6 +65,11 @@ export const settings = {
     // When it can't shoot its target from where it is, it hops towards it; this is how big a gap between comet surfaces
     // it treats as hoppable (matches tests/layout-reachability.test.js).
     longestHopGapMetres: 5.6,
+    // Each hop takes off from a random spot up to this far either side of straight towards the next comet (so it lands
+    // somewhere different each time; within 15 degrees a standing jump is tested to still land there), after a random
+    // pause of up to longestHopPauseSeconds, so neither where nor when it lands is predictable.
+    hopAngleVariationDegrees: 15,
+    longestHopPauseSeconds: 0.5,
     // Aiming like a person. Raising these makes it easier to beat. In the browser, the difficulty slider sets these
     // (and savesLimitedAmmo) from src/bot-difficulty.js; these fixed values are about 0.7 on that slider.
     // It aims at where it saw its target this long ago.

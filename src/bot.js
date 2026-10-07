@@ -7,7 +7,8 @@
 //   some other comet with a clear line to the target, within reach, reached without crossing the target's comet)
 //   rather than walking onto the target's comet, where it could be ambushed from the far side; only if there's no
 //   vantage point does it go to the target's comet. A target it can see but not yet shoot, it simply closes in on.
-//   Otherwise it wanders (runs, stands, sometimes jumps). Routes between comets are the fewest hops, and it sticks to
+//   Otherwise it wanders (runs, stands, sometimes jumps). Each hop takes off from a varied spot after a varied pause,
+//   so where and when it lands isn't predictable. Routes between comets are the fewest hops, and it sticks to
 //   a route until its next decision moment rather than dithering. It never sets off or jumps while its own lob is in
 //   the air.
 // - Drills (pickier the harder it is: see drillShotLooksClean): it keeps them for a target hidden behind a comet (the one the target stands on, or the bot's own when they
@@ -90,7 +91,7 @@ export class BotController {
     // Nor does it set off anywhere while its own lob is still in the air, whatever it's now holding: it would walk under
     // its own falling shell.
     const chasing = target && !(shot && shot.inPosition) && !drillMoment && !this.lobInFlight ? target : null;
-    if (fighter.movementMode === 'grounded') this.decideGroundMovement(game, fighter, controls, chasing);
+    if (fighter.movementMode === 'grounded') this.decideGroundMovement(game, fighter, controls, chasing, stepSeconds);
 
     if (target) {
       const goodMoment = (weaponName, punch) => this.isGoodMomentToSpend(game, fighter, target, weaponName, punch);
@@ -307,7 +308,7 @@ export class BotController {
   // Fills in controls.runDirection and controls.jumpRequested, in order of priority: dodging, stepping back from its own
   // lob, a crate on this comet, heading for a loot crate on another comet, going after a target it can't shoot from
   // here (chasing, or null: to a vantage point if there is one), then wandering.
-  decideGroundMovement(game, fighter, controls, chasing) {
+  decideGroundMovement(game, fighter, controls, chasing, stepSeconds) {
     const ownCometIndex = fighter.groundedCometIndex;
     const lootElsewhere = game.crateSpawner.crates.find((crate) => crate.isLoot && !crate.falling && crate.cometIndex !== ownCometIndex) ?? null;
     const plan = this.routePlan;
@@ -333,6 +334,9 @@ export class BotController {
         hasVantage: Boolean(vantage),
         hopTargetCometIndex,
         vantageAngleHere: vantage && vantage.cometIndex === ownCometIndex ? vantage.angle : null,
+        // Where (relative to straight at the next comet) and after how long a pause it will take off.
+        hopAngleOffset: ((game.random() * 2 - 1) * game.settings.bot.hopAngleVariationDegrees * Math.PI) / 180,
+        secondsToPauseBeforeHop: game.random() * game.settings.bot.longestHopPauseSeconds,
       };
     }
     this.hopTargetCometIndex = this.routePlan.hopTargetCometIndex;
@@ -360,12 +364,17 @@ export class BotController {
     } else if (this.hopTargetCometIndex !== null) {
       const here = game.comets[fighter.groundedCometIndex].centre;
       const there = game.comets[this.hopTargetCometIndex].centre;
-      const angleGap = signedAngleGap(fighter.angleOnComet, Math.atan2(there.y - here.y, there.x - here.x));
-      if (Math.abs(angleGap) < 0.05) {
-        // Facing the neighbour: a standing jump from here lands on it.
-        controls.jumpRequested = true;
-        this.hopTargetCometIndex = null;
-        this.routePlan = null;
+      const takeOffAngle = Math.atan2(there.y - here.y, there.x - here.x) + this.routePlan.hopAngleOffset;
+      const angleGap = signedAngleGap(fighter.angleOnComet, takeOffAngle);
+      if (Math.abs(angleGap) < 0.02) {
+        // At its take-off spot (within the tested range around facing the neighbour, so a standing jump lands on it):
+        // waits out its pause, then jumps.
+        this.routePlan.secondsToPauseBeforeHop -= stepSeconds;
+        if (this.routePlan.secondsToPauseBeforeHop <= 0) {
+          controls.jumpRequested = true;
+          this.hopTargetCometIndex = null;
+          this.routePlan = null;
+        }
       } else {
         controls.runDirection = Math.sign(angleGap);
       }

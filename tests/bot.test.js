@@ -145,7 +145,9 @@ test('the bot runs from a bursting shell coming down beside it', async () => {
 
 test('the bot keeps its mortar for targets beyond the reach of its big blast', async () => {
   const game = await botMatch(12, (settings) => {
+    // Pinned in place, so the only question is whether it fires the mortar from too close.
     settings.bot.chanceToJumpPerDecision = 0;
+    settings.bot.chanceToStandStillPerDecision = 1;
     settings.crates.spawnIntervalSeconds = 1000;
   });
   game.bot.arsenal.carriedWeapons.push({ weaponName: 'mortar', ammoRemaining: 99 });
@@ -159,8 +161,16 @@ test('the bot keeps its mortar for targets beyond the reach of its big blast', a
   makePlayerUnhurtable(game);
   const separation = Math.hypot(game.player.position.x - game.bot.position.x, game.player.position.y - game.bot.position.y);
   assert.ok(separation > game.settings.bot.pointBlankMetres && separation < game.settings.weapons.mortar.detonation.blastRadius + 1.5, `separation ${separation.toFixed(1)}`);
-  for (let step = 0; step < 5 / stepSeconds; step += 1) stepGame(game, stepSeconds);
-  assert.equal(game.bot.arsenal.carriedWeapons[1].ammoRemaining, 99, 'never fired the mortar');
+  const tooCloseForTheMortar = game.settings.weapons.mortar.detonation.blastRadius + 1.5;
+  let mortarShotsTooClose = 0;
+  for (let step = 0; step < 5 / stepSeconds; step += 1) {
+    const separationBefore = Math.hypot(game.player.position.x - game.bot.position.x, game.player.position.y - game.bot.position.y);
+    const mortarAmmoBefore = game.bot.arsenal.carriedWeapons[1].ammoRemaining;
+    stepGame(game, stepSeconds);
+    if (game.bot.arsenal.carriedWeapons[1].ammoRemaining < mortarAmmoBefore && separationBefore < tooCloseForTheMortar) mortarShotsTooClose += 1;
+  }
+  // It may move off and fire from a safe distance; what matters is that it never fires within reach of its own blast.
+  assert.equal(mortarShotsTooClose, 0, 'never fired the mortar within its own blast reach');
   assert.equal(game.bot.vitals.health, game.settings.rules.maxHealth);
 });
 
@@ -450,4 +460,36 @@ test('a picky bot holds its drills while its hidden enemy keeps moving; a carele
   const picky = await drillsFiredAgainstARunner(true);
   assert.ok(careless > 0, 'the careless bot fired at the runner');
   assert.ok(picky < careless, `the picky bot fired ${picky}, the careless one ${careless}`);
+});
+
+test('the bot takes off from a different spot each hop, landing somewhere different each time, but always where it meant to', async () => {
+  const landingAngles = [];
+  for (let seed = 1; seed <= 12; seed += 1) {
+    const game = await botMatch(seed, (settings) => {
+      settings.crates.spawnIntervalSeconds = 1000;
+      settings.bot.chanceToJumpPerDecision = 0;
+    });
+    game.bot.placeOnComet(game.comets, 3, Math.PI / 2);
+    game.player.placeOnComet(game.comets, 0, Math.PI / 2);
+    makePlayerUnhurtable(game);
+    // Loot on the next comet over, to make it hop there.
+    const lootComet = game.comets[4];
+    game.crateSpawner.crates.push({
+      isLoot: true, falling: false, velocity: { x: 0, y: 0 }, cometIndex: 4, angleOnComet: 0,
+      position: { x: lootComet.centre.x + lootComet.radius + game.settings.crates.size / 2, y: lootComet.centre.y },
+      weaponNames: ['drill', 'barrage'], secondsRemaining: 60,
+    });
+    for (let step = 0; step < 15 / stepSeconds; step += 1) {
+      const wasAirborne = game.bot.movementMode === 'airborne';
+      stepGame(game, stepSeconds);
+      if (wasAirborne && game.bot.movementMode === 'grounded') {
+        assert.equal(game.bot.groundedCometIndex, 4, `seed ${seed}: landed on comet ${game.bot.groundedCometIndex}, not the one it hopped for`);
+        landingAngles.push(game.bot.angleOnComet);
+        break;
+      }
+    }
+  }
+  assert.equal(landingAngles.length, 12, 'every hop landed');
+  const spread = Math.max(...landingAngles) - Math.min(...landingAngles);
+  assert.ok(spread > 0.3, `landing spots only spread over ${spread.toFixed(2)} radians`);
 });

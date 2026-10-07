@@ -133,7 +133,9 @@ Plain ES modules in `src/`, all tunable numbers in `src/settings.js`. `npm start
   (the preview a player sees) shows the drill coming out near where the target is now, and wants a hidden target to
   have stood still a moment (0 to 0.8 s by difficulty); on Hard it keeps drills only for such clean shots (no
   finishing-off exception). Against a still target a straight drill through a comet nearly always comes out within
-  5 cm of them; the real misses come from moving targets. Difficulty
+  5 cm of them; the real misses come from moving targets.
+  Hops vary (user: "more of a skill check"): each take-off is from a random spot within 15 degrees of facing the
+  next comet (the range the layout test proves still lands there), after a random pause of up to 0.5 s. Difficulty
   lives in a few plain settings (reaction, wobble, correction) under `bot` in `src/settings.js`.
 - Weapons are still plain settings data with behaviour flags (`passesThroughComets`, `eruption`,
   `firesAllCarriedWeapons`); likely to become classes once there are many more.
