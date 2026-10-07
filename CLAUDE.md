@@ -1,178 +1,151 @@
 # Comet Hop (working title): instructions for Claude
 
-A first playable prototype exists (see "What's built" below). This file began as a handoff from the conversation where the idea was designed, in the sibling project
-"Overarching Game" (while brainstorming a possible future 3D dimension there). It is standalone for now; it might later
-inform or be adapted into an Overarching Game dimension, but nothing here should be built to fit that project's rules
-(clusters, doors, the travel-time guarantee) unless asked. Read this file first.
+Read this file first. It is the handoff between sessions: what the game is, what the user decided, what's built, what's
+still open, and how this user likes to work. The idea began in the sibling project "Overarching Game"; this project is
+standalone and nothing here should be built to fit that project's rules unless asked.
 
 ## The game, in plain words
 
-A 2D, real-time (not turn-based) game: a handful of small comets float in space, each pulling things toward itself with
-its own gravity. Players run around the surface of whichever comet they're standing on and jump between comets, aiming
-and firing weapons at each other in real time, all players moving at once (not taking turns).
+A 2D real-time game: small comets float in space, each pulling things toward itself with its own gravity. Fighters run
+around the comet they stand on, jump between comets, and aim and fire weapons whose shots bend under gravity, all at
+once (not turn-based). Inspiration: the flash game *Gravitee Wars* (small planets, gravity-bent shots), but real time
+and closer to a platformer than to turn-based artillery. Online multiplayer is the long-term goal; for now it's the
+player against a bot.
 
-**Direct inspiration:** the flash game *Gravitee Wars* (small planets, gravity-bent shots, cute astronauts) — but that
-game is turn-based artillery (aim an angle and power, then wait); this game is real time with the player directly
-controlling movement and jumping, closer to a platformer than to artillery. Also informed by *Oddworld: Abe's
-Oddysee/Exoddus* (hand-built puzzle thinking, not directly applicable to this real-time combat idea) and the Overarching
-Game's existing "abilities as moves with limits" approach to player movement.
+## Controls
 
-## Controls (decided)
+- **A / Left arrow:** run counterclockwise. **D / Right arrow:** run clockwise. **W / Up arrow:** jump. (Both key sets
+  work because the user plays on a touchpad; bindings are one table at the top of `src/input.js`.)
+- **Mouse:** aim. Distance from your fighter sets the power of weapons with adjustable power. **Click:** fire.
+- **Tab** or **/** (next to the arrows): switch weapon. **R:** restart.
+- **Bot difficulty slider** (top centre, 0 to 1, default 0.5 "Normal", remembered per browser).
+- Touchpad-friendly: right-click / two-finger tap is blocked (it opened the browser menu, swallowing the next tap); a
+  ring flashes at the crosshair for every press. A press during cooldown does nothing: the user rejected remembering
+  it and firing automatically when ready.
 
-- **A:** run counterclockwise around the comet currently stood on.
-- **D:** run clockwise around the comet currently stood on.
-- **W:** jump (leaves the surface).
-- The arrow keys (Left, Right, Up) do the same as A, D, W. (Arrows first, then W/A/D only, then both, all on
-  2026-10-06; both are wanted because of touchpad play. Bindings live in one table at the top of `src/input.js`.)
-- **Mouse position:** aim direction, independent of movement.
-- **Left mouse button:** fire the current weapon.
-- **Tab** or **/** (next to the arrow keys): switch weapon. **R:** restart.
-- **Bot difficulty slider** (top centre; user's request, 2026-10-06): 0 to 1, default 0.5, remembered per browser.
-  Moves reaction, aim and power wobble, and correction between easiest and hardest values (`src/bot-difficulty.js`);
-  below 0.35 the bot stops saving ammo. The fixed values in `settings.js` (used by tests) are about 0.7.
-- **Touchpad-friendly (the user currently plays on a touchpad, 2026-10-06):** right-click / two-finger tap is blocked
-  (it opened the browser menu, swallowing the next tap); a ring flashes at the crosshair whenever a press registers. A
-  press during cooldown does nothing: the user rejected remembering it and firing automatically when ready.
+## Decisions made with the user (all 2026-10-06)
 
-## Physics plan (discussed, not yet built)
-
-- **Gravity is computed directly, not from a precomputed lookup table.** For a point P and comets each with a centre and
-  mass: `g(P) = sum over comets of G x mass x (centre - P) / |centre - P|^3`. Comets are static (do not move), so this
-  sum is cheap and exact to compute on demand every physics step. A grid of precomputed values was considered and
-  rejected: it would need to be very fine near small comets (where gravity changes fastest) to stay accurate, which costs
-  a lot of memory for little benefit over just doing the sum. Only reconsider a lookup table, or a smarter method such as
-  Barnes-Hut grouping, if the number of gravity-emitting bodies grows into the hundreds.
-- **Grounded movement** (standing on a comet): position is an angle around that comet's centre, at the comet's radius
-  plus the player's height. Running changes the angle. Convert a running speed in metres per second into angular speed
-  by dividing by the comet's radius, so a bigger comet takes proportionally longer to walk all the way around (matches
-  how the Overarching Game's platformer already treats speed, just wrapped around a circle).
-- **Jump:** leaves the surface radially outward (straight away from the comet's centre) at a tunable launch speed,
-  carrying the player's current running (tangential) velocity into the resulting arc.
-- **Airborne:** integrate the player's velocity each physics step using the full summed gravity field above (the same
-  semi-implicit approach the Overarching Game's `PlatformerPlayer` uses for falling: compute acceleration, update
-  velocity, update position). No air control planned for this MVP — once you've jumped, gravity decides the rest.
-- **Landing:** when the player's distance to some comet's centre reaches about that comet's radius plus player height
-  while closing in on it, snap back to "grounded" on that comet, with the new angle computed from the touch point.
-- **Jump reach and comet spacing have to be tuned together** so that a normal jump comfortably clears the gap to a
-  neighbouring comet — the user explicitly does not want this to require frame-perfect timing. Not tuned yet; this is a
-  build-and-feel step, the numbers are guesses until tried.
-
-## Weapons and combat (discussed, not yet built)
-
-- Weapons have a cooldown between shots. Possibly limited ammo, refilled by crates that spawn somewhere in the world —
-  not finalized whether the first weapon uses ammo at all.
-- Plan for at least two placeholder weapons for the MVP, simple and different only in their numbers (cooldown, ammo,
-  projectile speed), so the weapon-switch key has something to do. Not an exhaustive weapon system yet.
-- **Health, damage, death/respawn, and any win condition are not decided.** They depend entirely on the open question
-  below — a pure movement/shooting prototype may not need them yet at all.
-
-## Decisions made with the user
-
-- **Opponents (2026-10-06):** single-player against a **bot that has every ability the player has** (same controls,
-  same rules), in a different colour, with a rudimentary AI. **Online multiplayer is the long-term goal.** Same-keyboard
-  two-player is not planned: mouse aiming unfairly favours whoever has the mouse.
-- **The drone stays** as a neutral hazard (maybe later a turret or guard in a level): it fires a ring of shots in every
-  direction at a fixed interval, and drops special loot when destroyed. It never runs out of lives and doesn't count
-  towards winning.
-- **Weapons:** variety is what makes the game fun; expect many more. The starting weapon never uses ammo (nobody is
-  ever unable to attack) but is weak and generic. Collected weapons are stronger and limited by ammo. Inspirations: the
-  Gravitee Wars drill, the "volcano bomb" found in most tank games.
-- **Curving shots:** a weapon whose shots visibly curve shows the aiming player an aim path, **limited** to the start of
-  the flight (length needs playtest tuning). For weapons that have a muzzle velocity, **mouse distance from the
-  fighter sets the power.**
-- **Special loot (placeholder):** the Barrage: 4 shots, each firing every weapon carried at once, using only the
-  Barrage's ammo. Comes with a random ammo-limited weapon so it's never weak. **It is meant to be ridiculous** (user, 2026-10-06):
-  don't balance it down. Its own 1.5 s cooldown is shorter than the Mortar's, and that's fine. The skill is in using
-  it with a full inventory and picking a power that lands several weapons on target at once.
-- **Self-damage is on (2026-10-06)**, as in Gravitee Wars and tank games: your own shots, fragments and blasts can
-  hurt you. It's a rule setting (`shotsCanHurtTheirShooter`) so it can be switched off. Friendly fire between
+- **Opponent:** a bot with exactly the player's abilities and controls (a Fighter with a different controller).
+  Same-keyboard two-player is out: mouse aiming favours whoever has the mouse.
+- **The bot plays like a person:** only what a player can see plus rules of thumb, never calculating where shots go.
+  An earlier version that simulated shots was superhuman and froze while its shots flew; both were rejected.
+- **The drone** stays as a neutral hazard (maybe a turret or guard in a level later): ring volleys at intervals, loot
+  when destroyed, never runs out of lives, doesn't count towards winning.
+- **Weapons:** variety is the fun; expect many more. The starting Blaster never runs out but is weak; collected weapons
+  are stronger and ammo-limited. A curving weapon shows a **limited** aim path (length needs playtest tuning).
+- **The Barrage is meant to be ridiculous:** don't balance it down (its 1.5 s cooldown being shorter than the Mortar's
+  is fine). Using it well means a full inventory and a power that lands several weapons at once.
+- **Self-damage is on** (`rules.shotsCanHurtTheirShooter`), as in Gravitee Wars and tank games. Friendly fire between
   teammates will be its own setting once teams exist.
-- **Health, damage, respawning:** conventional. Lives are limited (a setting) and the same for every fighter. Leaving
-  the map (past a margin) costs a life, like falling off the stage.
+- **Health and lives:** conventional; limited lives (a setting), same for every fighter; leaving the map costs a life.
+- **Code structure:** object-oriented. `Character` base class; the player and bot are both `Fighter`s with different
+  controllers; drones subclass `Drone`.
 
-## What's built (prototype)
+## What's built
 
-Plain ES modules in `src/`, all tunable numbers in `src/settings.js`. `npm start` serves at http://localhost:8080/,
-`npm test` runs the tests. `window.cometHop.game` in the browser console exposes the live game for poking.
+Plain ES modules in `src/`, no dependencies. `npm start` serves http://localhost:8080/ (also saves match logs, below);
+`npm test` runs ~110 tests in about a second. All tunable numbers are in `src/settings.js`.
 
-- **Class structure (decided with the user, 2026-10-06):** `Character` (`character.js`) is the base for everything
-  that can be shot: shared position, health, lives and how a hit lands; each subclass supplies `update`,
-  `receiveKnockback` and `respawn` (and optionally `onLostLife`).
-  - `Fighter` (`fighter.js`): running, jumping, gravity, landing, weapons, crates. **The player and the bot are both
-    Fighters with different controllers**, not different classes. A controller has `decideControls(game, fighter,
-    stepSeconds)`: `HumanController` and `IdleController` in `controllers.js`, `BotController` in `bot.js`. A remote
-    online player would be another controller.
-  - `Drone` (`drone.js`): free flight between waypoints. Each kind of drone subclasses it: `HazardDrone`
-    (`hazard-drone.js`) adds ring volleys and loot. Future turrets or guards go alongside it.
-- Bot (`BotController`), **meant to play like a person (user's direction, 2026-10-06)**: it uses only what a player
-  can see plus rules of thumb, never a calculation of where shots will go (an earlier version that simulated shots was
-  superhuman and froze while its shots flew; both rejected). Straight weapons: aims where it saw the target a reaction
-  time ago, with wobble, fires in range with a clear line of sight. Lobs: rough first guess, then learns from where each
-  lob came down, one lob at a time like an artillery player. Rules of thumb: no explosives at point-blank range, never
-  lob into its own feet, runs from bursting shots coming down near it, chases a target it can't shoot. Each weapon
-  has a rough "feel" for reach (lobs: speed squared over gravity) and isn't fired out of reach. Lobs only from solid
-  ground; it doesn't chase while watching its own lob, and steps back from where an explosive lob is headed. (These
-  fixed frequent mortar self-hits the user reported: nearly 30% of shots, now about 2%.) It saves limited ammo like a person (user's point,
-  2026-10-06): pokes with the Blaster, and spends limited-ammo shots only at good moments (target airborne, nearly
-  dead, standing still, or already ranged in; an easy close straight shot; or the bot itself low on health).
-  Loot: the drone's loot crate falls onto a comet (always reachable), and the bot heads for it once landed, hopping
-  along the shortest route of comets. The drone: the bot takes Blaster shots at it only when it has no shot at its
-  enemy and the drone happens to be in reach; it never changes course, switches weapon, or spends limited ammo for
-  it (user's direction). Measured at about 20 drone damage per minute per bot, below the user's ~34 in a playtest.
-  Drills (user's idea, after beating the hardest bot by waiting on the far side of a comet and drilling it as it
-  landed): the bot keeps drills in reserve for a target hidden behind a comet it can bore through (the target's own
-  comet, or the shared one), drilling straight at it at full power, which guards its approach; otherwise it only uses
-  a drill to finish someone off. Easy bots still spend drills freely. It also drills the spot where an airborne
-  enemy is about to land (user's idea), reading their fall up to 1.5 s ahead with `predictLanding` (same physics as
-  real movement, tested to match exactly) and firing when the drill's rough flight time matches the landing time.
-  Flanking (against the user's ambush from the far side of a comet): with a straight-flying weapon and its target
-  hidden, the bot heads for a vantage point on another comet (routes avoid the target's comet) instead of walking
-  onto it. On this map only 4 of 16 neighbouring pairs have such a route; otherwise it still approaches (open
-  question for the user: wait for the enemy to show instead?).
-  Drill pickiness (user: "really picky about using drills at higher difficulty"): from Normal it checks the aim path
-  (the preview a player sees) shows the drill coming out near where the target is now, and wants a hidden target to
-  have stood still a moment (0 to 0.8 s by difficulty); on Hard it keeps drills only for such clean shots (no
-  finishing-off exception). Against a still target a straight drill through a comet nearly always comes out within
-  5 cm of them; the real misses come from moving targets.
-  Hops vary (user: "more of a skill check"): each take-off is from a random spot within 15 degrees of facing the
-  next comet (the range the layout test proves still lands there), after a random pause of up to 0.5 s. Difficulty
-  lives in a few plain settings (reaction, wobble, correction) under `bot` in `src/settings.js`.
-- Weapons are still plain settings data with behaviour flags (`passesThroughComets`, `eruption`,
-  `firesAllCarriedWeapons`); likely to become classes once there are many more.
-- Weapons: Blaster (unlimited, fixed speed), Heavy Cannon (fixed speed), Volcano Bomb (adjustable power; erupts into
-  fragments on impact, or as soon as it passes within 1.2 m of anyone but its shooter, throwing about two thirds of
-  them in a narrow fan at the nearest such character, never into the ground; the user's redesign, because the original
-  didn't work against dodging), Drill (adjustable power; bores into the first comet it meets and detonates on coming out of the far surface, with a blast that fades from centre to edge), Mortar (user's request: slow muzzle speed, big blast; detonates on impact with a comet or a character, 3.5 m blast), Barrage (drone loot). Crates on comet surfaces hold one
-  crate weapon; the drone's floating loot crate holds a bonus weapon plus the Barrage.
-- The aim path uses the same physics step as real shots, and a test checks they match exactly.
+**Physics** (`gravity.js`, `fighter.js`): gravity summed directly over comets each step (inside a comet it shrinks
+linearly to zero at the centre, for drills). Grounded fighters are an angle around a comet; running speed divided by
+radius gives angular speed. Jumps launch radially and keep running speed; airborne movement is semi-implicit; landing
+snaps to whichever comet is touched while closing in. `predictLanding` uses the same steps (tested to match exactly).
 
-Choices made while building, not yet confirmed by the user: collected weapons are lost on death; respawn is on top of
-a random comet no other fighter stands on; all comets share one surface gravity; comets are never damaged; a drill that hits someone before reaching any comet does plain hit damage with no blast; a drill underground can't hit anyone; blast numbers (radius 1.8 m, 35 damage at the centre) are guesses; the starting weapons
-curve only slightly, so they show no aim path.
+**Characters:** `character.js` (base: health, lives, hits; subclasses supply `update`, `receiveKnockback`, `respawn`,
+optional `onLostLife`). `fighter.js` (movement, weapons, crates). `controllers.js` (`HumanController`,
+`IdleController`), `bot.js` (`BotController`). `drone.js` (`Drone`) and `hazard-drone.js` (`HazardDrone`: volleys, loot).
 
-**Feel numbers:** gravity 9, jump 4.5, run 3 and the 7-comet layout were picked by simulating jumps, not by playing.
-`tests/layout-reachability.test.js` checks that a jump aimed within 15 degrees of a neighbouring comet lands on it,
-and that a standing jump never leaves the map. Change layout and jump numbers together and rerun it. Every weapon and
-bot number is a first guess.
+**Weapons** (data in `settings.js`, behaviour flags in `projectiles.js`; likely to become classes when there are more):
+- Blaster: unlimited, fixed speed, weak. Heavy Cannon: fixed speed, hits hard.
+- Volcano Bomb: lob; bursts on impact or as soon as it passes within 1.2 m of anyone but its shooter, throwing about
+  two thirds of its 9 fragments in a narrow fan at the nearest such character (never into the ground). This is the
+  user's redesign, because the original didn't work against dodging.
+- Drill: lob; bores into the first comet it meets and detonates coming out of the far side (1.8 m blast fading to the
+  edge); can't hit anyone while underground.
+- Mortar: slow lob (2.5 to 8 m/s, sped up once by request), 3.5 m blast on impact with a comet or character.
+- Barrage: drone loot; each of 4 shots fires every carried weapon at once, using only its own ammo.
+- Crates on comet surfaces hold one crate weapon. The drone's loot crate falls under gravity onto a comet (always
+  reachable; can be grabbed mid-fall) and holds a bonus weapon plus the Barrage.
+- The aim path uses the game's own physics step; a test checks it matches real flight exactly.
 
-## Stack (recommended; matches the user's other two browser games)
+**The bot** (`bot.js`; its header comment lists every habit). In short:
+- Aims at where it saw its target a reaction time ago, with wobble. Lobs start from a rough guess and learn from where
+  each one came down, one lob at a time.
+- Has a rough feel for each weapon's reach (lobs: speed squared over gravity) and won't fire out of reach.
+- Rules of thumb: no explosives within their blast reach; lobs only from solid ground; never sets off or jumps while
+  its own lob is in the air; steps back from where its explosive lob is headed; dodges bursting shots.
+- Saves limited ammo for good moments (target airborne, nearly dead, standing still, or already ranged in; easy close
+  straight shot; or itself low on health).
+- Drills: kept for a target hidden behind a comet it can bore through, and for the spot where an airborne enemy is
+  about to land. Pickier the harder it is: aim-path check, hidden target must stand still, Hard keeps drills only for
+  clean shots.
+- Movement: fetches loot crates; flanks a hidden target via a vantage point on another comet (routes avoid the
+  target's comet) instead of walking into an ambush; varies hop take-off spot (within 15 degrees) and timing (up to
+  0.5 s). Routes are fewest hops; it commits to a route until its next decision moment.
+- Takes passing Blaster shots at the drone only when it has no shot at its enemy; never changes course or spends ammo
+  for it (user's direction).
+- Difficulty (`bot-difficulty.js`): reaction time, aim and power wobble, miss correction, drill pickiness and landing
+  timing move between easiest and hardest; Easy doesn't save ammo. The fixed values in `settings.js` (used by tests)
+  sit at about 0.7.
 
-Plain ES modules, Canvas 2D rendering, a tiny static file server (the Overarching Game's `scripts/serve.js` is a short,
-reusable example), `node --test` for tests, no dependencies. Both "First Game" and "Overarching Game" are built this way;
-there's no reason to introduce a framework or a build step for this.
+**Playtest tools:**
+- Match log (`match-log.js`): every shot fired, where each main shot came down relative to the nearest enemy, every
+  hit, every life lost with unused ammo. The game posts it to the local server every 10 s, at match end and on
+  restart; it lands in `playtest-logs/` (git-ignored, accepted only from this computer). Read those files to see
+  how a playtest went.
+- In the browser console: `cometHop.game`, `cometHop.summary()`, `cometHop.earlierMatchSummaries()`.
 
-## How this user likes to work (carried over; ask if anything here seems not to fit this project)
+## Open questions and next steps
+
+- **No-flank fallback (asked, unanswered):** on this map only 4 of 16 neighbouring comet pairs have a flanking route,
+  so the bot usually still approaches a hidden enemy's comet. Options offered: wait for the enemy to show (with a time
+  limit), keep moving on landing, leave it, or change the map for more open sight lines.
+- **Tuning by play:** every weapon number, bot number, the aim path length (0.8 s) and the volcano fuse (1.2 m, two
+  thirds aimed, 40 degree fan) are first guesses.
+- **Choices made while building, not yet confirmed by the user:** collected weapons are lost on death; respawn is on
+  top of a random comet no other fighter stands on; all comets share one surface gravity; comets are never damaged; a
+  drill that hits someone before reaching any comet does plain hit damage; the Blaster and Heavy Cannon show no aim
+  path (they barely curve).
+- **Later:** more weapons (then weapons as classes); the bot's targeting for more than two fighters (who to shoot,
+  where to stand); online multiplayer (a remote player would be one more controller).
+- The user's playtest feedback so far: the Hard bot is now a real challenge; the drill ambush from the far side of a
+  comet is no longer broken; trackpad aiming makes things harder for them.
+
+## Testing
+
+- `node --test` over `tests/*.test.js`; about a second for everything. Bot tests run whole simulated matches with a
+  seeded random (`tests/helpers.js`), so a change to the random sequence can change how a match plays out. Prefer
+  tests that check a rule ("never fires the mortar within its own blast reach") over one exact course of events.
+- `tests/layout-reachability.test.js`: a standing jump within 15 degrees of facing a neighbour lands on it, and a
+  standing jump never leaves the map. Change the comet layout and jump numbers together and rerun it.
+- The user's habit: for anything meant as a guarantee, break it on purpose in a scratch copy (the scratchpad folder)
+  and confirm a test fails. This caught several weak tests this session.
+
+## Working here (Windows, Git Bash)
+
+- In `sed`, a backslash-backtick is a start-of-line anchor, not a literal backtick: never use it to "unescape"
+  template strings (it once put a backtick at the start of every line of a test file).
+- In a quoted heredoc (`<<'EOF'`), write template literals with plain backticks and `${...}`, not escaped ones.
+- Multi-line edits: a small Node script with exact find-and-replace pairs that fails loudly when a pair isn't found
+  has worked well; keep each script in the scratchpad.
+- The browser pane runs the game only while it's visible on screen; when hidden it barely advances. The preview
+  server must be restarted after changing `scripts/serve.js`.
+
+## Stack
+
+Plain ES modules, Canvas 2D, a tiny static file server (`scripts/serve.js`), `node --test`, no dependencies and no build
+step, like the user's other two browser games ("First Game", "Overarching Game").
+
+## How this user likes to work
 
 - **Plain words first**, with any name defined where it first appears; no single-letter names.
-- **Descriptive names everywhere** — variables, settings, test names — so their purpose is clear without having to ask.
-- **Ask before making a design decision**, rather than quietly picking one and building on it; give a recommendation
-  with trade-offs and keep questions few and concrete.
-- **Guarantees by construction where that's cheap**, but this is a much smaller, faster-moving project than the
-  Overarching Game — don't force that project's heavier process onto a first prototype.
-- **Testing discipline**, proportionate to what exists: once there is real logic (the gravity math, the grounded/airborne
-  transition), write tests alongside it, and for anything that's meant to be a guarantee, break it on purpose in a
-  scratch copy to confirm a test catches it.
-- **Watch context and tokens**: small, targeted edits; short command output; suggest a fresh session at a natural
-  checkpoint (this very file exists because of that habit).
-- **Honest reporting**: say plainly what is and is not built or tested yet. The feel numbers in the physics plan above
-  are guesses and should be labelled as such until actually played.
+- **Descriptive names everywhere** (variables, settings, test names).
+- **Ask before making a design decision**; give a recommendation with trade-offs; keep questions few and concrete.
+  They often answer mid-task with short messages that refine or redirect; follow the latest one.
+- **Guarantees by construction where cheap**, but this is a small, fast-moving project.
+- **Testing discipline**, proportionate to what exists (see Testing above).
+- **Watch context and tokens:** small, targeted edits; short command output; suggest a fresh session at a natural
+  checkpoint.
+- **Honest reporting:** say plainly what is and isn't built or tested, and label guesses as guesses.
+- Only make a change when it's worth doing (they said so about test-management tooling: no extra machinery for
+  problems they don't have yet).
