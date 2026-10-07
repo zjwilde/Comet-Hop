@@ -12,11 +12,18 @@ long-term goal.
 
 You need [Node.js](https://nodejs.org/) 22 or newer. There's nothing to install and no build step.
 
-```
-npm start
-```
+The game runs on a small local server, which has to be running while you play:
 
-Then open http://localhost:8080/ in a browser. (To use a different port, set the `PORT` environment variable.)
+1. Open a terminal in the project folder and run:
+
+   ```
+   npm start
+   ```
+
+2. Leave that terminal open. The game is only reachable while the server is running.
+3. Open http://localhost:8080/ in a browser.
+
+To stop the server, press **Ctrl+C** in its terminal. To use a different port, set the `PORT` environment variable.
 
 ## How to play
 
