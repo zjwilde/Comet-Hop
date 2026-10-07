@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createComets } from '../src/gravity.js';
 import { createProjectile, updateProjectiles, predictFlightPath, muzzleSpeedFor, mouseDistanceForMuzzleSpeed, blastStrengthAt } from '../src/projectiles.js';
-import { distance, normalize } from '../src/vector.js';
+import { distance, normalize, dot } from '../src/vector.js';
 import { copyOfSettings } from './helpers.js';
 
 const settings = await copyOfSettings();
@@ -128,19 +128,61 @@ test('a volcano bomb hitting a comet erupts its fragments outward from the surfa
   }
 });
 
-test('volcano fragments never hit the shooter, nor the target the bomb itself hit', () => {
-  const shooter = shooterAt({ x: 10, y: 3 });
-  const target = targetAt({ x: 12, y: 3 });
-  const projectiles = [createProjectile(shooter, { x: 1, y: 0 }, weapons.volcanoBomb, 8)];
-  const allHits = [];
-  for (let step = 0; step < 240; step += 1) {
-    allHits.push(...updateProjectiles(projectiles, stepSeconds, [], [shooter, target], outerBounds).hits);
-    // Keep the shooter in the fragments' way.
-    shooter.position = { x: 11, y: 3 };
+test('a volcano bomb bursts when it passes close to someone, throwing most of its fragments at them', () => {
+  // Out in open space: a bomb flying past just above the target, never touching it.
+  const shooter = shooterAt({ x: 5, y: 3 });
+  const target = targetAt({ x: 12, y: 4 });
+  const { eruption } = weapons.volcanoBomb;
+  const projectiles = [createProjectile(shooter, { x: 1, y: 0 }, { ...weapons.volcanoBomb, gravityScale: 0 }, 8)];
+  let burstAt = null;
+  for (let step = 0; step < 240 && !burstAt; step += 1) {
+    const before = { ...projectiles[0].position };
+    updateProjectiles(projectiles, stepSeconds, [], [shooter, target], outerBounds);
+    if (projectiles.some((projectile) => projectile.isFragment)) burstAt = before;
   }
-  assert.equal(allHits.length, 1, 'only the bomb itself hit');
-  assert.equal(allHits[0].target, target);
-  assert.ok(projectiles.every((fragment) => fragment.cannotHitIds.includes(shooter.id) && fragment.cannotHitIds.includes(target.id)));
+  assert.ok(burstAt, 'it burst');
+  assert.ok(distance(burstAt, target.position) - target.bodyRadius <= eruption.proximityFuseMetres + 0.1, 'close to the target');
+  const towardsTarget = normalize({ x: target.position.x - burstAt.x, y: target.position.y - burstAt.y });
+  const aimedAtTarget = projectiles.filter((fragment) => dot(normalize(fragment.velocity), towardsTarget) > Math.cos((eruption.aimedSpreadDegrees / 2 + 5) * Math.PI / 180));
+  assert.ok(aimedAtTarget.length >= Math.round(eruption.fragmentCount * eruption.aimedFragmentFraction), `only ${aimedAtTarget.length} fragments head at the target`);
+  // And they hit.
+  const hits = [];
+  for (let step = 0; step < 120; step += 1) hits.push(...updateProjectiles(projectiles, stepSeconds, [], [shooter, target], outerBounds).hits);
+  assert.ok(hits.filter((hit) => hit.target === target).length >= 3, 'several fragments hit the target');
+});
+
+test('a volcano bomb never bursts near its own shooter, and (with self-damage off) its fragments never hit them', () => {
+  const shooter = shooterAt({ x: 10, y: 3 });
+  const target = targetAt({ x: 14, y: 3 });
+  const projectiles = [createProjectile(shooter, { x: 1, y: 0 }, { ...weapons.volcanoBomb, gravityScale: 0 }, 8)];
+  updateProjectiles(projectiles, stepSeconds, [], [shooter, target], outerBounds);
+  assert.ok(projectiles.every((projectile) => !projectile.isFragment), 'did not burst on leaving the shooter');
+  const hitsOnShooter = [];
+  for (let step = 0; step < 240; step += 1) {
+    // Keep the shooter close, in the fragments' way.
+    shooter.position = { x: 12, y: 3 };
+    hitsOnShooter.push(...updateProjectiles(projectiles, stepSeconds, [], [shooter, target], outerBounds).hits.filter((hit) => hit.target === shooter));
+  }
+  assert.equal(hitsOnShooter.length, 0);
+});
+
+test('a volcano bomb landing on a comet throws most fragments towards the nearest character, never into the ground', () => {
+  const comet = comets[3];
+  const shooter = shooterAt({ x: comet.centre.x, y: comet.centre.y - comet.radius - 6 });
+  // Someone off to the right, above the comet's surface.
+  const target = targetAt({ x: comet.centre.x + comet.radius + 3, y: comet.centre.y - 2 });
+  const projectiles = [createProjectile(shooter, { x: 0, y: 1 }, { ...weapons.volcanoBomb, eruption: { ...weapons.volcanoBomb.eruption, proximityFuseMetres: 0 } }, 6)];
+  for (let step = 0; step < 240 && projectiles.every((projectile) => !projectile.isFragment); step += 1) {
+    updateProjectiles(projectiles, stepSeconds, comets, [shooter, target], outerBounds);
+  }
+  const { eruption } = weapons.volcanoBomb;
+  assert.equal(projectiles.length, eruption.fragmentCount, 'it burst on the comet');
+  const headingRight = projectiles.filter((fragment) => fragment.velocity.x > 0.5 * Math.hypot(fragment.velocity.x, fragment.velocity.y));
+  assert.ok(headingRight.length >= Math.round(eruption.fragmentCount * eruption.aimedFragmentFraction), `only ${headingRight.length} head towards the target`);
+  for (const fragment of projectiles) {
+    const upFromSurface = normalize({ x: fragment.position.x - comet.centre.x, y: fragment.position.y - comet.centre.y });
+    assert.ok(dot(normalize(fragment.velocity), upFromSurface) > 0, 'no fragment heads into the comet');
+  }
 });
 
 // Fires a mortar shell and steps until it detonates. Returns { blast, hits } or null if it never did.

@@ -1,6 +1,6 @@
 // Shots in flight: bent by comet gravity (scaled per weapon), stopped by comets (unless they bore through), the world
 // edge, or their lifetime. Some burst into fragments where they hit; some detonate on coming out of a comet.
-import { add, subtract, scale, distance, length, normalize, directionFromAngle } from './vector.js';
+import { add, subtract, scale, distance, length, normalize, dot, directionFromAngle } from './vector.js';
 import { gravityAt } from './gravity.js';
 import { isAlive } from './vitals.js';
 
@@ -77,15 +77,26 @@ function detonationPoint(projectile, comets) {
   return add(comet.centre, scale(normalize(subtract(projectile.position, comet.centre)), comet.radius));
 }
 
-// The fragments a bursting shot throws out: an even fan centred on upDirection, with varied speeds.
-function eruptionFragments(shell, burstPoint, upDirection, alsoCannotHitId) {
+// Directions for a fan of a given number of fragments, evenly spread across spreadRadians around centreAngle.
+function fanDirections(count, centreAngle, spreadRadians) {
+  return Array.from({ length: count }, (_, index) => {
+    const fractionAcrossFan = count === 1 ? 0.5 : index / (count - 1);
+    return directionFromAngle(centreAngle + (fractionAcrossFan - 0.5) * spreadRadians);
+  });
+}
+
+// The fragments a bursting shot throws out, with varied speeds: most in a narrow fan towards aimDirection (if there is
+// someone to aim at), the rest in the wide fan centred on upDirection.
+function eruptionFragments(shell, burstPoint, upDirection, alsoCannotHitId, aimDirection = null) {
   const eruption = shell.eruption;
-  const centreAngle = Math.atan2(upDirection.y, upDirection.x);
-  const spreadRadians = (eruption.spreadDegrees * Math.PI) / 180;
+  const aimedCount = aimDirection ? Math.round(eruption.fragmentCount * eruption.aimedFragmentFraction) : 0;
+  const directions = [
+    ...fanDirections(aimedCount, aimDirection ? Math.atan2(aimDirection.y, aimDirection.x) : 0, (eruption.aimedSpreadDegrees * Math.PI) / 180),
+    ...fanDirections(eruption.fragmentCount - aimedCount, Math.atan2(upDirection.y, upDirection.x), (eruption.spreadDegrees * Math.PI) / 180),
+  ];
   const fragments = [];
   for (let fragmentIndex = 0; fragmentIndex < eruption.fragmentCount; fragmentIndex += 1) {
-    const fractionAcrossFan = eruption.fragmentCount === 1 ? 0.5 : fragmentIndex / (eruption.fragmentCount - 1);
-    const direction = directionFromAngle(centreAngle + (fractionAcrossFan - 0.5) * spreadRadians);
+    const direction = directions[fragmentIndex];
     // Spread the speeds over the range in a scattered but repeatable order (steps of the golden ratio).
     const speedFraction = (fragmentIndex * 0.618034) % 1;
     const speed = eruption.slowestFragmentSpeed + speedFraction * (eruption.fastestFragmentSpeed - eruption.slowestFragmentSpeed);
@@ -112,6 +123,16 @@ function eruptionFragments(shell, burstPoint, upDirection, alsoCannotHitId) {
     });
   }
   return fragments;
+}
+
+// The nearest living character to a point, other than the one with excludedId, or null.
+function nearestCharacterTo(point, characters, excludedId) {
+  let nearest = null;
+  for (const character of characters) {
+    if (character.id === excludedId || !isAlive(character.vitals)) continue;
+    if (!nearest || distance(character.position, point) < distance(nearest.position, point)) nearest = character;
+  }
+  return nearest;
 }
 
 // Moves every projectile one step and removes finished ones (in place), adding any fragments from bursts.
@@ -165,6 +186,17 @@ export function updateProjectiles(projectiles, stepSeconds, comets, characters, 
       if (projectile.eruption) newFragments.push(...eruptionFragments(projectile, projectile.position, scale(normalize(projectile.velocity), -1), target.id));
       continue;
     }
+    // A bursting shell with a proximity fuse goes off as soon as it comes close to anyone but its shooter, throwing most
+    // of its fragments at them.
+    if (projectile.eruption?.proximityFuseMetres) {
+      const nearby = nearestCharacterTo(projectile.position, characters, projectile.ownerId);
+      if (nearby && distance(nearby.position, projectile.position) - nearby.bodyRadius <= projectile.eruption.proximityFuseMetres) {
+        noteLanding(projectile, projectile.position);
+        const towardsThem = normalize(subtract(nearby.position, projectile.position));
+        newFragments.push(...eruptionFragments(projectile, projectile.position, scale(normalize(projectile.velocity), -1), null, towardsThem));
+        continue;
+      }
+    }
     const comet = cometHitBy(projectile, comets);
     if (comet) {
       noteLanding(projectile, projectile.position);
@@ -175,7 +207,11 @@ export function updateProjectiles(projectiles, stepSeconds, comets, characters, 
       if (projectile.eruption) {
         const upFromSurface = normalize(subtract(projectile.position, comet.centre));
         const burstPoint = add(comet.centre, scale(upFromSurface, comet.radius + projectile.eruption.fragmentRadius + 0.02));
-        newFragments.push(...eruptionFragments(projectile, burstPoint, upFromSurface, null));
+        // Most fragments go towards the nearest character other than the shooter, tipped up if that's into the ground.
+        const nearest = projectile.eruption.aimedFragmentFraction ? nearestCharacterTo(burstPoint, characters, projectile.ownerId) : null;
+        let aimDirection = nearest ? normalize(subtract(nearest.position, burstPoint)) : null;
+        if (aimDirection && dot(aimDirection, upFromSurface) < 0.15) aimDirection = normalize(add(aimDirection, scale(upFromSurface, 0.6)));
+        newFragments.push(...eruptionFragments(projectile, burstPoint, upFromSurface, null, aimDirection));
       }
       continue;
     }

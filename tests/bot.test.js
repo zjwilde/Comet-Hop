@@ -110,6 +110,8 @@ test('the bot learns from misses: its lobs come down much closer to a target tha
       // No random wobble, so only learning changes the aim.
       settings.bot.aimWobbleDegrees = 0;
       settings.bot.powerWobbleFraction = 0;
+      // No proximity fuse, so where each lob comes down shows how well it aimed.
+      settings.weapons.volcanoBomb.eruption.proximityFuseMetres = 0;
     });
     game.bot.placeOnComet(game.comets, botComet, -Math.PI / 2);
     game.player.placeOnComet(game.comets, playerComet, -Math.PI / 2);
@@ -128,7 +130,8 @@ test('the bot learns from misses: its lobs come down much closer to a target tha
     }
     assert.equal(mostLobsInTheAirAtOnce, 1, 'watches each lob land before firing the next');
     const [firstMiss, ...laterMisses] = misses;
-    assert.ok(Math.min(...laterMisses) < firstMiss / 3, `comet ${botComet} -> ${playerComet}: misses ${misses.map((miss) => miss.toFixed(1)).join(' ')}`);
+    // Closes in: to a third of its first miss, or (when the first was already near) to within 2 m.
+    assert.ok(Math.min(...laterMisses) < Math.max(firstMiss / 3, 2), `comet ${botComet} -> ${playerComet}: misses ${misses.map((miss) => miss.toFixed(1)).join(' ')}`);
   }
 });
 

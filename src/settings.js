@@ -198,7 +198,8 @@ export const settings = {
       showsAimPath: false,
       eruption: null,
     },
-    // A lobbed shell that bursts into a fan of burning fragments where it lands.
+    // A lobbed shell that bursts into burning fragments where it lands, or as soon as it passes close to anyone but its
+    // shooter, throwing most of them towards the nearest such character (user's design, so it works against dodging).
     volcanoBomb: {
       displayName: 'Volcano Bomb',
       projectileColour: '#ff5a36',
@@ -224,6 +225,12 @@ export const settings = {
         fragmentLifetimeSeconds: 4,
         fragmentKnockbackSpeed: 1.5,
         fragmentColour: '#ffb03a',
+        // Bursts when within this distance of anyone but its shooter (measured to the edge of their body).
+        proximityFuseMetres: 1.2,
+        // This share of the fragments goes in a narrow fan (aimedSpreadDegrees wide) towards the nearest character other
+        // than the shooter; the rest in the wide fan above.
+        aimedFragmentFraction: 0.67,
+        aimedSpreadDegrees: 40,
       },
     },
     // Bores into the first comet it meets and detonates on coming out of the far side, so you can hit someone standing
