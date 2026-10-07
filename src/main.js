@@ -62,14 +62,16 @@ fitCanvasToWindow();
 const finishedMatchLogs = [];
 
 // Saves the match log into the project's playtest-logs folder (through the local server) every few seconds, when the
-// match ends, and when a new one starts, so a playtest can be looked at afterwards. Nothing leaves this computer.
+// match ends, and when a new one starts, so a playtest can be looked at afterwards. Nothing leaves this computer. Only
+// when served by the local server: the hosted copy (GitHub Pages) has nowhere to save logs.
 const secondsBetweenLogSaves = 10;
+const servedByLocalServer = ['localhost', '127.0.0.1'].includes(location.hostname);
 function newMatchId() {
   return `match-${new Date().toISOString().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '')}`;
 }
 let matchId = newMatchId();
 function saveMatchLog() {
-  if (game.matchLog.length === 0) return;
+  if (!servedByLocalServer || game.matchLog.length === 0) return;
   const body = JSON.stringify({ matchId, botDifficulty: settings.bot.difficulty, outcome: game.outcome, summary: summarizeMatchLog(game.matchLog), log: game.matchLog });
   fetch(`/match-log/${matchId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).catch(() => {});
 }

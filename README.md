@@ -8,22 +8,9 @@ than to turn-based artillery.
 It's an early work in progress: one map, one bot opponent, and a handful of weapons. Online multiplayer is the
 long-term goal.
 
-## Running it
+## [Play it in your browser](https://zjwilde.github.io/Comet-Hop/)
 
-You need [Node.js](https://nodejs.org/) 22 or newer. There's nothing to install and no build step.
-
-The game runs on a small local server, which has to be running while you play:
-
-1. Open a terminal in the project folder and run:
-
-   ```
-   npm start
-   ```
-
-2. Leave that terminal open. The game is only reachable while the server is running.
-3. Open http://localhost:8080/ in a browser.
-
-To stop the server, press **Ctrl+C** in its terminal. To use a different port, set the `PORT` environment variable.
+Nothing to download or install. It needs a keyboard and a mouse or touchpad.
 
 ## How to play
 
@@ -56,11 +43,17 @@ bonus weapon.
 
 ## Development
 
-The game is plain JavaScript modules drawn on an HTML canvas, with no dependencies.
+The game is plain JavaScript modules drawn on an HTML canvas, with no dependencies and no build step.
+
+To run your own copy, you need [Node.js](https://nodejs.org/) 22 or newer. In a terminal in the project folder, run
+`npm start`, then open http://localhost:8080/ and leave the terminal open while you play. (Opening `index.html`
+straight from disk doesn't work: browsers won't load the game's module files that way.) To stop the server, press
+**Ctrl+C**. To use a different port, set the `PORT` environment variable.
 
 - `src/`: the game. All the numbers you might want to tune are in `src/settings.js`.
 - `tests/`: run them with `npm test`.
-- `scripts/serve.js`: a small local server. It also saves a log of each match to `playtest-logs/`.
+- `scripts/serve.js`: the local server. When you play through it, it also saves a log of each match to
+  `playtest-logs/`.
 
 ## Licence
 
