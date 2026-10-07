@@ -139,8 +139,10 @@ Plain ES modules in `src/`, all tunable numbers in `src/settings.js`. `npm start
   lives in a few plain settings (reaction, wobble, correction) under `bot` in `src/settings.js`.
 - Weapons are still plain settings data with behaviour flags (`passesThroughComets`, `eruption`,
   `firesAllCarriedWeapons`); likely to become classes once there are many more.
-- Weapons: Blaster (unlimited, fixed speed), Heavy Cannon (fixed speed), Volcano Bomb (adjustable power, erupts into
-  fragments), Drill (adjustable power; bores into the first comet it meets and detonates on coming out of the far surface, with a blast that fades from centre to edge), Mortar (user's request: slow muzzle speed, big blast; detonates on impact with a comet or a character, 3.5 m blast), Barrage (drone loot). Crates on comet surfaces hold one
+- Weapons: Blaster (unlimited, fixed speed), Heavy Cannon (fixed speed), Volcano Bomb (adjustable power; erupts into
+  fragments on impact, or as soon as it passes within 1.2 m of anyone but its shooter, throwing about two thirds of
+  them in a narrow fan at the nearest such character, never into the ground; the user's redesign, because the original
+  didn't work against dodging), Drill (adjustable power; bores into the first comet it meets and detonates on coming out of the far surface, with a blast that fades from centre to edge), Mortar (user's request: slow muzzle speed, big blast; detonates on impact with a comet or a character, 3.5 m blast), Barrage (drone loot). Crates on comet surfaces hold one
   crate weapon; the drone's floating loot crate holds a bonus weapon plus the Barrage.
 - The aim path uses the same physics step as real shots, and a test checks they match exactly.
 
