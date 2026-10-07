@@ -100,7 +100,15 @@ export const settings = {
     // Drilling where its enemy is about to land: it reads an airborne enemy's fall up to this far ahead, and fires a
     // drill when the drill would arrive within this many seconds of the landing.
     landingLookAheadSeconds: 1.5,
-    landingDrillTimingSeconds: 0.12,
+    landingDrillTimingSeconds: 0.1,
+    // How picky it is with drills: whether it first checks the aim path (the same preview a player sees) to confirm a
+    // drill comes out close enough to its target (within drillExitAllowanceMetres of their body), and whether it keeps
+    // drills only for such clean shots (not even to finish someone off). The difficulty slider sets all three.
+    checksDrillAimPath: true,
+    drillExitAllowanceMetres: 1.1,
+    drillsOnlyForCleanShots: true,
+    // And how long a hidden target must have stood still before it drills at them (a drill misses a runner).
+    drillTargetStillSeconds: 0.56,
   },
 
   // The floating drone: a neutral hazard. It shoots a ring of shots in every direction now and then, can be shot by

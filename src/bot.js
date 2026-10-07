@@ -10,7 +10,7 @@
 //   Otherwise it wanders (runs, stands, sometimes jumps). Routes between comets are the fewest hops, and it sticks to
 //   a route until its next decision moment rather than dithering. It never sets off or jumps while its own lob is in
 //   the air.
-// - Drills: it keeps them for a target hidden behind a comet (the one the target stands on, or the bot's own when they
+// - Drills (pickier the harder it is: see drillShotLooksClean): it keeps them for a target hidden behind a comet (the one the target stands on, or the bot's own when they
 //   share a comet), and then drills straight at it through that comet at full power. That guards its approach to a
 //   comet where its enemy waits on the far side. It also drills the spot where an airborne enemy is about to land, when
 //   the drill would come out there just as they touch down. Otherwise (when saving ammo) it only uses a drill to finish
@@ -29,6 +29,7 @@
 import { add, scale, subtract, distance, length, normalize, dot, directionFromAngle, distanceFromPointToSegment } from './vector.js';
 import { selectedWeapon, weaponsThatFire, startingWeaponName } from './weapons.js';
 import { predictLanding } from './fighter.js';
+import { predictFlightPath } from './projectiles.js';
 import { idleControls } from './controllers.js';
 
 export class BotController {
@@ -183,7 +184,6 @@ export class BotController {
     return shot.worthFiring ? shot : null;
   }
 
-  // Works out the aim point and whether a shot is worth taking now, using only rules of thumb.
   // A drill at where an airborne target is about to land, if one aimed straight at that spot would bore into the comet
   // it's landing on, come out right under it, and get there just as it lands. Returns { aimPoint } or null.
   landingDrillAim(game, fighter, target) {
@@ -203,9 +203,12 @@ export class BotController {
     const drillSeconds = distanceToSpot / drillDefinition.muzzleSpeedRange.fastest;
     if (Math.abs(drillSeconds - landing.seconds) > botSettings.landingDrillTimingSeconds) return null;
     const towardsSpot = subtract(comesOutAt, fighter.position);
+    if (!drillShotLooksClean(game, fighter, normalize(towardsSpot), drillDefinition, landing.position, target.bodyRadius)) return null;
     const direction = directionFromAngle(Math.atan2(towardsSpot.y, towardsSpot.x) + this.wobble.turnRadians);
     return { aimPoint: add(fighter.position, scale(direction, aiming.mouseDistanceForFullPower)) };
   }
+
+  // Works out the aim point and whether a shot is worth taking now, using only rules of thumb.
 
   // drillMoment: the target is hidden behind a comet a drill can bore through (see isDrillMoment).
   aimAt(game, fighter, target, seenTargetPosition, drillMoment = false) {
@@ -228,7 +231,10 @@ export class BotController {
     if (drillMoment && drillsThroughComets(weaponDefinition)) {
       const direction = directionFromAngle(Math.atan2(towardsTarget.y, towardsTarget.x) + this.wobble.turnRadians);
       const inPosition = isWithinReach(game, weaponDefinition, targetDistance) && isSafeAtThisRange(game, fighter, targetDistance);
-      const worthFiring = inPosition && fighter.movementMode === 'grounded';
+      const worthFiring = inPosition && fighter.movementMode === 'grounded'
+        && this.hasStoodStillFor(target, botSettings.drillTargetStillSeconds)
+        // Judged against where the target is now (which it can see), not where it aimed.
+        && drillShotLooksClean(game, fighter, normalize(towardsTarget), weaponDefinition, target.position, target.bodyRadius);
       return { aimPoint: add(fighter.position, scale(direction, aiming.mouseDistanceForFullPower)), worthFiring, inPosition, isLob: false };
     }
 
@@ -256,7 +262,7 @@ export class BotController {
     if (!botSettings.savesLimitedAmmo) return true;
     const definition = weapons[weaponName];
     // Drills are kept for drilling through a comet at a hidden target (handled separately), or to finish someone off.
-    if (drillsThroughComets(definition)) return target.vitals.health <= punch;
+    if (drillsThroughComets(definition)) return !botSettings.drillsOnlyForCleanShots && target.vitals.health <= punch;
     const targetDistance = distance(fighter.position, target.position);
     const sightingsLongEnough = this.targetSightings.filter((sighting) => sighting.seconds >= this.elapsedSeconds - botSettings.sittingDuckSeconds);
     const sittingDuck = this.targetSightings.length > 0 && this.targetSightings[0].seconds <= this.elapsedSeconds - botSettings.sittingDuckSeconds
@@ -272,6 +278,16 @@ export class BotController {
       || sittingDuck
       || zeroedIn
       || easyStraightShot;
+  }
+
+  // Whether its target has stayed put (moved less than a body's width) for the last given number of seconds, going by
+  // what it has seen of it.
+  hasStoodStillFor(target, seconds) {
+    if (seconds <= 0) return true;
+    const sightings = this.targetSightings.filter((sighting) => sighting.targetId === target.id);
+    if (sightings.length === 0 || sightings[0].seconds > this.elapsedSeconds - seconds) return false;
+    return sightings.filter((sighting) => sighting.seconds >= this.elapsedSeconds - seconds)
+      .every((sighting) => distance(sighting.position, target.position) < target.bodyRadius);
   }
 
   // Lessons from earlier lobs only apply if neither it nor the target has moved much since; otherwise it guesses afresh.
@@ -451,6 +467,20 @@ function preferredWeapon(game, fighter, target, goodMoment, drillMoment) {
   const reachingChoices = affordable.filter(canReach);
   const choices = reachingChoices.length > 0 ? reachingChoices : affordable;
   return choices.reduce((best, weaponName) => (punchOf(weaponName) > punchOf(best) ? weaponName : best), choices[0]);
+}
+
+// Whether a drill aimed this way (as intended, before any wobble) looks like a clean shot. A picky bot checks the aim
+// path, the same preview a player sees while aiming: the drill must come out (detonate) within that preview, within
+// drillExitAllowanceMetres of the target's body where it is now. Against a target standing still that's nearly always
+// so; against one on the move, the drill comes out where they were. A less picky bot doesn't check.
+function drillShotLooksClean(game, fighter, aimDirection, drillDefinition, targetPosition, targetBodyRadius) {
+  const { bot: botSettings, aiming, physics } = game.settings;
+  if (!botSettings.checksDrillAimPath) return true;
+  const aimPath = predictFlightPath(fighter, aimDirection, drillDefinition.muzzleSpeedRange.fastest, drillDefinition, game.comets, game.outerBounds,
+    aiming.aimPathPreviewSeconds, 1 / physics.stepsPerSecond);
+  const endOfPath = aimPath[aimPath.length - 1];
+  const cameOutOfAComet = game.comets.some((comet) => Math.abs(distance(endOfPath, comet.centre) - comet.radius) < 1e-6);
+  return cameOutOfAComet && distance(endOfPath, targetPosition) - targetBodyRadius <= botSettings.drillExitAllowanceMetres;
 }
 
 // Weapons that bore into a comet and detonate on coming out of the far side.

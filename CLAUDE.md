@@ -128,7 +128,12 @@ Plain ES modules in `src/`, all tunable numbers in `src/settings.js`. `npm start
   Flanking (against the user's ambush from the far side of a comet): with a straight-flying weapon and its target
   hidden, the bot heads for a vantage point on another comet (routes avoid the target's comet) instead of walking
   onto it. On this map only 4 of 16 neighbouring pairs have such a route; otherwise it still approaches (open
-  question for the user: wait for the enemy to show instead?). Difficulty
+  question for the user: wait for the enemy to show instead?).
+  Drill pickiness (user: "really picky about using drills at higher difficulty"): from Normal it checks the aim path
+  (the preview a player sees) shows the drill coming out near where the target is now, and wants a hidden target to
+  have stood still a moment (0 to 0.8 s by difficulty); on Hard it keeps drills only for such clean shots (no
+  finishing-off exception). Against a still target a straight drill through a comet nearly always comes out within
+  5 cm of them; the real misses come from moving targets. Difficulty
   lives in a few plain settings (reaction, wobble, correction) under `bot` in `src/settings.js`.
 - Weapons are still plain settings data with behaviour flags (`passesThroughComets`, `eruption`,
   `firesAllCarriedWeapons`); likely to become classes once there are many more.

@@ -6,6 +6,7 @@ import { createGame, stepGame } from '../src/game.js';
 import { HumanController } from '../src/controllers.js';
 import { isDrillMoment } from '../src/bot.js';
 import { predictLanding } from '../src/fighter.js';
+import { predictFlightPath } from '../src/projectiles.js';
 import { copyOfSettings, createSeededRandom, noControls } from './helpers.js';
 
 const stepSeconds = 1 / 120;
@@ -336,7 +337,10 @@ test('otherwise the bot keeps its drills in reserve: an enemy in the air is not 
   assert.equal(game.bot.controller.isGoodMomentToSpend(game, game.bot, game.player, 'drill', punch), false, 'not for a drill');
   assert.equal(game.bot.controller.isGoodMomentToSpend(game, game.bot, game.player, 'heavyCannon', 30), true, 'though it is for other weapons');
   game.player.vitals.health = 10;
-  assert.equal(game.bot.controller.isGoodMomentToSpend(game, game.bot, game.player, 'drill', punch), true, 'but a drill can finish someone off');
+  game.settings.bot.drillsOnlyForCleanShots = false;
+  assert.equal(game.bot.controller.isGoodMomentToSpend(game, game.bot, game.player, 'drill', punch), true, 'below Hard, a drill can finish someone off');
+  game.settings.bot.drillsOnlyForCleanShots = true;
+  assert.equal(game.bot.controller.isGoodMomentToSpend(game, game.bot, game.player, 'drill', punch), false, 'on Hard, not even that');
 });
 
 test('the bot drills the spot where its enemy is about to land, timed so the blast catches them coming down', async () => {
@@ -422,4 +426,28 @@ test('against an enemy hiding on the far side of its comet, the bot flanks to a 
     assert.ok(game.player.vitals.health < 1000, `${botComet} -> ${playerComet}: never got a shot in`);
     assert.equal(stoodOnEnemysComet, false, `${botComet} -> ${playerComet}: walked onto the enemy's comet`);
   }
+});
+
+test('a picky bot holds its drills while its hidden enemy keeps moving; a careless one fires them off', async () => {
+  const probe = await botMatch(6);
+  const facing = angleBetween(probe, 3, 4);
+  const drillsFiredAgainstARunner = async (picky) => {
+    const { game, drillsLeft, playFor } = await drillScenario({ botComet: 3, botAngle: facing, playerComet: 4, playerAngle: facing });
+    game.settings.bot.checksDrillAimPath = picky;
+    game.settings.bot.drillExitAllowanceMetres = picky ? 0.5 : 2.5;
+    game.settings.bot.drillTargetStillSeconds = picky ? 0.8 : 0;
+    makePlayerUnhurtable(game);
+    // Running back and forth on the hidden side of its comet, changing direction every second.
+    let elapsed = 0;
+    game.player.controller = new HumanController(() => ({ ...noControls, runDirection: Math.floor(elapsed) % 2 === 0 ? 1 : -1, aimPoint: { ...game.player.position } }));
+    for (let step = 0; step < 4 / stepSeconds; step += 1) {
+      stepGame(game, stepSeconds);
+      elapsed += stepSeconds;
+    }
+    return 3 - drillsLeft();
+  };
+  const careless = await drillsFiredAgainstARunner(false);
+  const picky = await drillsFiredAgainstARunner(true);
+  assert.ok(careless > 0, 'the careless bot fired at the runner');
+  assert.ok(picky < careless, `the picky bot fired ${picky}, the careless one ${careless}`);
 });
