@@ -85,11 +85,18 @@ test('with self-damage on, the bot does not blow itself up with a volcano bomb a
     game.bot.arsenal.carriedWeapons.push({ weaponName: 'volcanoBomb', ammoRemaining: 99 });
     game.bot.arsenal.selectedIndex = 1;
     game.player.placeOnComet(game.comets, game.bot.groundedCometIndex, game.bot.angleOnComet + 0.6);
-    // Unhurtable, so it stays right beside the bot instead of respawning somewhere far away.
+    // Unhurtable, so it stays where it is instead of respawning somewhere far away.
     makePlayerUnhurtable(game);
-    for (let step = 0; step < 10 / stepSeconds; step += 1) stepGame(game, stepSeconds);
+    let volcanoShotsAtPointBlank = 0;
+    for (let step = 0; step < 10 / stepSeconds; step += 1) {
+      const volcanoAmmoBefore = game.bot.arsenal.carriedWeapons.find((carried) => carried.weaponName === 'volcanoBomb').ammoRemaining;
+      const separation = Math.hypot(game.player.position.x - game.bot.position.x, game.player.position.y - game.bot.position.y);
+      stepGame(game, stepSeconds);
+      const volcanoAmmoAfter = game.bot.arsenal.carriedWeapons.find((carried) => carried.weaponName === 'volcanoBomb').ammoRemaining;
+      if (volcanoAmmoAfter < volcanoAmmoBefore && separation < game.settings.bot.pointBlankMetres) volcanoShotsAtPointBlank += 1;
+    }
     assert.equal(game.bot.vitals.health, game.settings.rules.maxHealth, `seed ${seed}`);
-    assert.equal(game.bot.arsenal.carriedWeapons[game.bot.arsenal.selectedIndex].weaponName, 'blaster', 'switched to the blaster up close');
+    assert.equal(volcanoShotsAtPointBlank, 0, 'never fired the volcano bomb at point-blank range');
   }
 });
 
@@ -182,7 +189,9 @@ test('with a mortar the bot rarely hurts itself, yet still lands its shells near
   assert.ok(mortarShots >= 20, `only ${mortarShots} mortar shots`);
   // About 2% now; without stepping back from its own lobs it was about 10%, before the fixes nearly 30%.
   assert.ok(selfHits <= mortarShots * 0.05, `${selfHits} self-hits from ${mortarShots} shots`);
-  assert.ok(landingsNearTarget >= mortarShots * 0.5, `only ${landingsNearTarget} of ${mortarShots} landed near the target`);
+  // At least a third, about a person's rate (the user's mortar shells landed near the bot 42% of the time in a
+  // playtest). Since it learned to flank, it fires far more often, more of them at long range, so this sits near 37%.
+  assert.ok(landingsNearTarget >= mortarShots / 3, `only ${landingsNearTarget} of ${mortarShots} landed near the target`);
 });
 
 // Sets up the bot with a mortar and a volcano bomb, and the player on the neighbouring comet within their reach,
@@ -390,4 +399,27 @@ test('the landing drill waits for the moment the drill would arrive as its enemy
     assert.ok(Math.abs(secondsLeft - drillSeconds) <= game.settings.bot.landingDrillTimingSeconds + 1e-9, `wanted to fire with ${secondsLeft.toFixed(2)} s left; the drill takes ${drillSeconds.toFixed(2)} s`);
   }
   assert.ok(momentsItWantedToFire.every(({ secondsLeft }) => secondsLeft < 1), 'not while the landing was still far off');
+});
+
+test('against an enemy hiding on the far side of its comet, the bot flanks to a vantage point instead of walking onto that comet', async () => {
+  // Pairs where a flanking route exists. (On this map, most neighbouring pairs have none: the comets that can see the
+  // far side of the enemy's comet can only be reached through it, so the bot falls back on approaching.)
+  for (const [botComet, playerComet] of [[3, 4], [1, 2], [3, 2], [5, 4]]) {
+    const game = await botMatch(7, (settings) => {
+      settings.crates.spawnIntervalSeconds = 1000;
+      settings.bot.chanceToJumpPerDecision = 0;
+    });
+    const facing = angleBetween(game, botComet, playerComet);
+    game.bot.placeOnComet(game.comets, botComet, facing);
+    // Hiding on the side of its comet facing away from the bot. Plenty of health, so the test isn't cut short.
+    game.player.placeOnComet(game.comets, playerComet, facing);
+    game.player.vitals.health = 1000;
+    let stoodOnEnemysComet = false;
+    for (let step = 0; step < 20 / stepSeconds && game.player.vitals.health === 1000; step += 1) {
+      stepGame(game, stepSeconds);
+      if (game.bot.movementMode === 'grounded' && game.bot.groundedCometIndex === playerComet) stoodOnEnemysComet = true;
+    }
+    assert.ok(game.player.vitals.health < 1000, `${botComet} -> ${playerComet}: never got a shot in`);
+    assert.equal(stoodOnEnemysComet, false, `${botComet} -> ${playerComet}: walked onto the enemy's comet`);
+  }
 });

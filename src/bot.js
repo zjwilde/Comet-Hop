@@ -2,9 +2,14 @@
 // bot plays by the same rules as the player. It's meant to play like a person: it uses only what a person can see and
 // simple rules of thumb, and never calculates where a shot will go.
 // - Moving: runs from bursting or exploding shots (anyone's) coming down near it; grabs crates on its own comet, and
-//   heads for a loot crate on another comet once it has landed; when
-//   it can't shoot its target from where it is, goes after it (runs round towards it on the same comet, or hops along
-//   the shortest route of comets to it); otherwise wanders (runs, stands, sometimes jumps).
+//   heads for a loot crate on another comet once it has landed. When it can't shoot its target from where it is: if
+//   the target is hidden from its straight-flying weapon, it flanks, heading for the nearest vantage point (a spot on
+//   some other comet with a clear line to the target, within reach, reached without crossing the target's comet)
+//   rather than walking onto the target's comet, where it could be ambushed from the far side; only if there's no
+//   vantage point does it go to the target's comet. A target it can see but not yet shoot, it simply closes in on.
+//   Otherwise it wanders (runs, stands, sometimes jumps). Routes between comets are the fewest hops, and it sticks to
+//   a route until its next decision moment rather than dithering. It never sets off or jumps while its own lob is in
+//   the air.
 // - Drills: it keeps them for a target hidden behind a comet (the one the target stands on, or the bot's own when they
 //   share a comet), and then drills straight at it through that comet at full power. That guards its approach to a
 //   comet where its enemy waits on the far side. It also drills the spot where an airborne enemy is about to land, when
@@ -22,7 +27,7 @@
 //   artillery player, it watches each lob come down before firing the next, and after an explosive one it steps back
 //   from where it's headed rather than wandering into the blast.
 import { add, scale, subtract, distance, length, normalize, dot, directionFromAngle, distanceFromPointToSegment } from './vector.js';
-import { selectedWeapon, weaponsThatFire } from './weapons.js';
+import { selectedWeapon, weaponsThatFire, startingWeaponName } from './weapons.js';
 import { predictLanding } from './fighter.js';
 import { idleControls } from './controllers.js';
 
@@ -33,6 +38,10 @@ export class BotController {
     this.wantsToJump = false;
     // A neighbouring comet it's heading for, or null.
     this.hopTargetCometIndex = null;
+    // Where it's going and how, kept until its next decision moment (or until it lands somewhere new, or loot appears
+    // or goes), so it doesn't dither when a tiny step changes whether its target is in view:
+    // { onCometIndex, lootCrate, hopTargetCometIndex, vantageAngleHere }.
+    this.routePlan = null;
     this.elapsedSeconds = 0;
     // Where it has recently seen its target, oldest first: [{ seconds, targetId, position }]. For its reaction time.
     this.targetSightings = [];
@@ -72,11 +81,14 @@ export class BotController {
       const standStill = game.random() < botSettings.chanceToStandStillPerDecision;
       this.plannedRunDirection = standStill ? 0 : (game.random() < 0.5 ? -1 : 1);
       this.wantsToJump = game.random() < botSettings.chanceToJumpPerDecision;
+      this.routePlan = null;
     }
 
     // It goes after a target only when it couldn't shoot it from here at all; not while merely waiting for its weapon
     // or watching a lob land (which would carry it under its own falling shell).
-    const chasing = target && !(shot && shot.inPosition) && !drillMoment ? target : null;
+    // Nor does it set off anywhere while its own lob is still in the air, whatever it's now holding: it would walk under
+    // its own falling shell.
+    const chasing = target && !(shot && shot.inPosition) && !drillMoment && !this.lobInFlight ? target : null;
     if (fighter.movementMode === 'grounded') this.decideGroundMovement(game, fighter, controls, chasing);
 
     if (target) {
@@ -88,6 +100,8 @@ export class BotController {
       this.lobBeingAimed = shot.isLob && shot.worthFiring
         ? { firedFrom: { ...fighter.position }, targetId: target.id, targetPositionThen: { ...target.position }, explosive: shot.explosive, blastRadius: shot.blastRadius }
         : null;
+      // A lob is fired from solid ground, so it doesn't jump on the step it fires one (and then come down under it).
+      if (this.lobBeingAimed) controls.jumpRequested = false;
       // A drill at the spot its enemy is about to land on, timed to arrive as they touch down.
       if (landingDrill && drillsThroughComets(game.settings.weapons[selectedWeapon(fighter.arsenal).weaponName])) {
         controls.aimPoint = landingDrill.aimPoint;
@@ -276,14 +290,41 @@ export class BotController {
 
   // Fills in controls.runDirection and controls.jumpRequested, in order of priority: dodging, stepping back from its own
   // lob, a crate on this comet, heading for a loot crate on another comet, going after a target it can't shoot from
-  // here (chasing, or null), then wandering.
+  // here (chasing, or null: to a vantage point if there is one), then wandering.
   decideGroundMovement(game, fighter, controls, chasing) {
-    const lootElsewhere = game.crateSpawner.crates.find((crate) => crate.isLoot && !crate.falling && crate.cometIndex !== fighter.groundedCometIndex);
-    const headingFor = lootElsewhere ? lootElsewhere.position : chasing ? chasing.position : null;
-    this.hopTargetCometIndex = headingFor ? neighbourCometTowards(game, fighter, headingFor) : null;
+    const ownCometIndex = fighter.groundedCometIndex;
+    const lootElsewhere = game.crateSpawner.crates.find((crate) => crate.isLoot && !crate.falling && crate.cometIndex !== ownCometIndex) ?? null;
+    const plan = this.routePlan;
+    if (!plan || plan.onCometIndex !== ownCometIndex || plan.lootCrate !== lootElsewhere || plan.wasChasing !== Boolean(chasing)) {
+      // Flanking is for a target hidden from it while it holds a straight-flying weapon (a lob doesn't need a clear
+      // line). A target it can see but not yet shoot (out of range, say), it closes in on.
+      const inHand = game.settings.weapons[selectedWeapon(fighter.arsenal).weaponName];
+      const needsClearLine = !inHand.muzzleSpeedRange && !inHand.firesAllCarriedWeapons;
+      const targetHidden = chasing && !hasClearLineOfSight(game, fighter.position, chasing.position);
+      const vantage = !lootElsewhere && needsClearLine && targetHidden && chasing.movementMode === 'grounded'
+        ? findVantagePoint(game, fighter, chasing, chaseReachOf(game, fighter)) : null;
+      let hopTargetCometIndex = null;
+      if (lootElsewhere) hopTargetCometIndex = neighbourCometTowards(game, fighter, lootElsewhere.position);
+      else if (vantage) {
+        hopTargetCometIndex = vantage.cometIndex === ownCometIndex ? null
+          : firstHopTowardsComet(game, ownCometIndex, vantage.cometIndex, chasing.groundedCometIndex);
+      }
+      else if (chasing) hopTargetCometIndex = neighbourCometTowards(game, fighter, chasing.position);
+      this.routePlan = {
+        onCometIndex: ownCometIndex,
+        lootCrate: lootElsewhere,
+        wasChasing: Boolean(chasing),
+        hasVantage: Boolean(vantage),
+        hopTargetCometIndex,
+        vantageAngleHere: vantage && vantage.cometIndex === ownCometIndex ? vantage.angle : null,
+      };
+    }
+    this.hopTargetCometIndex = this.routePlan.hopTargetCometIndex;
+    const vantageAngleHere = this.routePlan.vantageAngleHere;
+    const vantage = this.routePlan.hasVantage;
     const awayFromDanger = runDirectionAwayFromDanger(game, fighter);
     const towardsCrate = runDirectionTowardsCrateOnSameComet(game, fighter);
-    const chasingOnThisComet = !lootElsewhere && chasing && chasing.movementMode === 'grounded' && chasing.groundedCometIndex === fighter.groundedCometIndex;
+    const chasingOnThisComet = !lootElsewhere && !vantage && chasing && chasing.movementMode === 'grounded' && chasing.groundedCometIndex === ownCometIndex;
     if (awayFromDanger !== null) {
       controls.runDirection = awayFromDanger;
     } else if (this.lobInFlight && this.lobInFlight.explosive
@@ -294,6 +335,10 @@ export class BotController {
       controls.runDirection = signedAngleGap(Math.atan2(headedFor.y - centre.y, headedFor.x - centre.x), fighter.angleOnComet) >= 0 ? 1 : -1;
     } else if (towardsCrate !== null) {
       controls.runDirection = towardsCrate;
+    } else if (vantageAngleHere !== null) {
+      // Runs round its own comet to the vantage point.
+      const angleGap = signedAngleGap(fighter.angleOnComet, vantageAngleHere);
+      controls.runDirection = Math.abs(angleGap) < 0.02 ? 0 : Math.sign(angleGap);
     } else if (chasingOnThisComet) {
       controls.runDirection = signedAngleGap(fighter.angleOnComet, chasing.angleOnComet) >= 0 ? 1 : -1;
     } else if (this.hopTargetCometIndex !== null) {
@@ -304,13 +349,15 @@ export class BotController {
         // Facing the neighbour: a standing jump from here lands on it.
         controls.jumpRequested = true;
         this.hopTargetCometIndex = null;
+        this.routePlan = null;
       } else {
         controls.runDirection = Math.sign(angleGap);
       }
     } else {
       controls.runDirection = this.plannedRunDirection;
-      // Jumps standing still (no running speed carried), since a standing jump never leaves the map.
-      if (this.wantsToJump) {
+      // Jumps standing still (no running speed carried), since a standing jump never leaves the map. Not while its own
+      // lob is in the air: it could land under it.
+      if (this.wantsToJump && !this.lobInFlight) {
         controls.runDirection = 0;
         controls.jumpRequested = true;
         this.wantsToJump = false;
@@ -457,33 +504,80 @@ function runDirectionTowardsCrateOnSameComet(game, fighter) {
   return signedAngleGap(fighter.angleOnComet, crate.angleOnComet) >= 0 ? 1 : -1;
 }
 
-// The next comet to hop to on the way to a point: the first step of the fewest-hops route (between comets whose
-// surfaces are within a hop of each other) to the comet nearest that point. Null if already there or there's no route.
-// Like a person who knows the map, rather than only ever hopping to whichever neighbour looks closer.
-function neighbourCometTowards(game, fighter, point) {
+// Fewest-hops routes from one comet to all others (between comets whose surfaces are within a hop of each other), by
+// breadth-first search, never passing through avoidCometIndex (if given). Returns { hopCount, reachedFrom }: maps from
+// comet index to hops needed, and to the comet it is first reached from. Like a person who knows the map.
+function hopRoutesFrom(game, startIndex, avoidCometIndex = null) {
   const { comets } = game;
-  const destinationIndex = comets.reduce((nearest, comet, index) => (distance(comet.centre, point) < distance(comets[nearest].centre, point) ? index : nearest), 0);
-  const startIndex = fighter.groundedCometIndex;
-  if (destinationIndex === startIndex) return null;
   const canHop = (fromIndex, toIndex) => fromIndex !== toIndex
     && distance(comets[fromIndex].centre, comets[toIndex].centre) - comets[fromIndex].radius - comets[toIndex].radius <= game.settings.bot.longestHopGapMetres;
-  // Breadth-first search, remembering which comet each one was first reached from.
+  const hopCount = new Map([[startIndex, 0]]);
   const reachedFrom = new Map([[startIndex, null]]);
   const queue = [startIndex];
   while (queue.length > 0) {
     const current = queue.shift();
-    if (current === destinationIndex) break;
     comets.forEach((_, next) => {
-      if (!reachedFrom.has(next) && canHop(current, next)) {
+      if (!reachedFrom.has(next) && next !== avoidCometIndex && canHop(current, next)) {
         reachedFrom.set(next, current);
+        hopCount.set(next, hopCount.get(current) + 1);
         queue.push(next);
       }
     });
   }
+  return { hopCount, reachedFrom };
+}
+
+// The next comet to hop to on the fewest-hops route to a destination comet (never through avoidCometIndex, if given).
+// Null if already there or there's no route.
+function firstHopTowardsComet(game, startIndex, destinationIndex, avoidCometIndex = null) {
+  if (destinationIndex === startIndex) return null;
+  const { reachedFrom } = hopRoutesFrom(game, startIndex, avoidCometIndex);
   if (!reachedFrom.has(destinationIndex)) return null;
   let step = destinationIndex;
   while (reachedFrom.get(step) !== startIndex) step = reachedFrom.get(step);
   return step;
+}
+
+// The next comet to hop to on the way to a point (the comet nearest it).
+function neighbourCometTowards(game, fighter, point) {
+  const { comets } = game;
+  const destinationIndex = comets.reduce((nearest, comet, index) => (distance(comet.centre, point) < distance(comets[nearest].centre, point) ? index : nearest), 0);
+  return firstHopTowardsComet(game, fighter.groundedCometIndex, destinationIndex);
+}
+
+// How far it wants to be able to shoot when going after a target: the reach of the straight-flying weapon in hand, or
+// of the Blaster if it's holding a lob weapon.
+function chaseReachOf(game, fighter) {
+  const { weapons } = game.settings;
+  const inHand = weapons[selectedWeapon(fighter.arsenal).weaponName];
+  return roughReachOf(game, inHand.muzzleSpeedRange || inHand.firesAllCarriedWeapons ? weapons[startingWeaponName] : inHand);
+}
+
+// A vantage point for a target it can't see: a standing spot on some comet other than the target's own, with a clear
+// line to the target, within reach, and not dangerously close. Of those, the one it can get to in the fewest hops,
+// then (on its own comet) the least running round. Returns { cometIndex, angle }, or null if there's none.
+const vantageSpotsPerComet = 24;
+function findVantagePoint(game, fighter, target, reachMetres) {
+  const { comets } = game;
+  // Routes there never pass through the target's comet: that's where the ambush would be.
+  const { hopCount } = hopRoutesFrom(game, fighter.groundedCometIndex, target.groundedCometIndex);
+  let best = null;
+  comets.forEach((comet, cometIndex) => {
+    if (cometIndex === target.groundedCometIndex || !hopCount.has(cometIndex)) return;
+    for (let spotIndex = 0; spotIndex < vantageSpotsPerComet; spotIndex += 1) {
+      const angle = (spotIndex / vantageSpotsPerComet) * 2 * Math.PI;
+      const spot = add(comet.centre, scale(directionFromAngle(angle), comet.radius + fighter.bodyRadius));
+      const distanceToTarget = distance(spot, target.position);
+      if (distanceToTarget > reachMetres || distanceToTarget < game.settings.bot.pointBlankMetres) continue;
+      // A clear line from the spot and from a little either side of it, so stopping slightly short still works.
+      const clearFromAround = [-0.08, 0, 0.08].every((nudge) => hasClearLineOfSight(game, add(comet.centre, scale(directionFromAngle(angle + nudge), comet.radius + fighter.bodyRadius)), target.position));
+      if (!clearFromAround) continue;
+      const runningRound = cometIndex === fighter.groundedCometIndex ? Math.abs(signedAngleGap(fighter.angleOnComet, angle)) : 0;
+      const cost = hopCount.get(cometIndex) * 10 + runningRound;
+      if (!best || cost < best.cost) best = { cometIndex, angle, cost };
+    }
+  });
+  return best;
 }
 
 function nearestEnemy(game, fighter) {

@@ -124,7 +124,11 @@ Plain ES modules in `src/`, all tunable numbers in `src/settings.js`. `npm start
   comet, or the shared one), drilling straight at it at full power, which guards its approach; otherwise it only uses
   a drill to finish someone off. Easy bots still spend drills freely. It also drills the spot where an airborne
   enemy is about to land (user's idea), reading their fall up to 1.5 s ahead with `predictLanding` (same physics as
-  real movement, tested to match exactly) and firing when the drill's rough flight time matches the landing time. Difficulty
+  real movement, tested to match exactly) and firing when the drill's rough flight time matches the landing time.
+  Flanking (against the user's ambush from the far side of a comet): with a straight-flying weapon and its target
+  hidden, the bot heads for a vantage point on another comet (routes avoid the target's comet) instead of walking
+  onto it. On this map only 4 of 16 neighbouring pairs have such a route; otherwise it still approaches (open
+  question for the user: wait for the enemy to show instead?). Difficulty
   lives in a few plain settings (reaction, wobble, correction) under `bot` in `src/settings.js`.
 - Weapons are still plain settings data with behaviour flags (`passesThroughComets`, `eruption`,
   `firesAllCarriedWeapons`); likely to become classes once there are many more.
